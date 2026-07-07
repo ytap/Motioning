@@ -57,6 +57,12 @@ var ARC_DECAY = 1.2;     // 停止後のエンベロープ減衰時定数 (秒)
 var NAMES = ["balance", "rotation", "articulation", "acceleration", "deceleration",
              "gravity", "vibration", "rhythm", "tension", "stillness"];
 
+// 要素ごとの感度カーブ (正規化後の活性に act^γ を適用)。
+// γ < 1 = 敏感 (低めの表出でも立つ)、γ > 1 = 鈍く (強い表出でないと立たない)。
+// 実機フィードバック: 振動・張力が反応しにくい → 0.7。
+// (リズムの過反応は自己相関の正規化バグが真因だったため γ は 1 に戻した)
+var RESPONSE = [1, 1, 1, 1, 1, 1, 0.7, 1, 0.7, 1];
+
 // ---- 音の制御 (音の中身は Max 側の要素ボイスが決める) ----
 var SPOT_TAU = 0.4;      // スポットライト重みのクロスフェード時定数 (秒)
 var GAIN_CURVE = 1.3;    // master gain のカーブ (活性度^この値)
@@ -92,7 +98,10 @@ var REACH = REACH_DEFAULT;
 // ---- 状態 ----
 var samples = [];        // {t, ux,uy,uz (user accel, G), g:[gx,gy,gz]|null (G), wx,wy,wz (rad/s)}
 var specBuf = [];        // {t, x,y,z: linear accel m/s² (符号つき)} — 振動/張力の帯域分離用 (1.5秒)
-var slow = [];           // rhythm 用 linRMS 列
+var slow = [];           // rhythm 用: 直近 hop (100ms) の平均 |a| の列。
+                         // 500ms RMS だと拍のバーストが均されて自己相関が弱る
+var hopAccum = 0;
+var hopCount = 0;
 var lastSlowT = 0;
 var curLinRMS = 0;
 var curRotRMS = 0;
@@ -189,6 +198,10 @@ function addSample(u) {
 		g: lastGravity ? [lastGravity[0], lastGravity[1], lastGravity[2]] : null,
 		wx: w[0], wy: w[1], wz: w[2]
 	});
+	// リズムは並進 (m/s²) と回転 (rad/s、×2 でスケール合わせ) の両方の律動を聴く
+	hopAccum += Math.sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]) * G2MS2
+		+ Math.sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) * 2;
+	hopCount++;
 	// 符号つきで保持 (大きさにすると整流で周波数が2倍に化けるため)
 	specBuf.push({ t: now, x: u[0] * G2MS2, y: u[1] * G2MS2, z: u[2] * G2MS2 });
 	while (specBuf.length && now - specBuf[0].t > SPEC_MS) specBuf.shift();
@@ -217,7 +230,9 @@ function update() {
 	raw[2] = updateArc(now, lastAxisStab);
 
 	if (now - lastSlowT >= SLOW_HOP_MS) {
-		slow.push(curLinRMS);
+		slow.push(hopCount ? hopAccum / hopCount : 0);
+		hopAccum = 0;
+		hopCount = 0;
 		if (slow.length > SLOW_LEN) slow.shift();
 		lastSlowT = now;
 	}
@@ -229,7 +244,7 @@ function update() {
 	var relT = RELEASE_TAU * (1 - (1 - FAST_REL) * speed);
 	var act = [];
 	for (var i = 0; i < 10; i++) {
-		var v = normalize(i, raw[i]);
+		var v = Math.pow(normalize(i, raw[i]), RESPONSE[i]);
 		var tau = v > smoothAct[i] ? attT : relT;
 		smoothAct[i] += (v - smoothAct[i]) * (1 - Math.exp(-sdt / tau));
 		act.push(smoothAct[i]);
@@ -550,15 +565,20 @@ function autocorrPeak(buf) {
 	var r0 = 0;
 	for (i = 0; i < len; i++) r0 += c[i] * c[i];
 	if (r0 < 1e-9) return 0;
+	r0 /= len;
 	var best = 0;
-	var maxLag = Math.min(20, len - 2);
-	for (var lag = 2; lag <= maxLag; lag++) {
-		var r = 0;
-		for (i = 0; i + lag < len; i++) r += c[i] * c[i + lag];
+	// lag ごとに重なり項数で正規化する (しないと r(lag) が (len-lag)/len に
+	// 頭打ちされ、真にリズミカルな動きでも 0.34 程度にしかならない)。
+	// maxLag は len/2 まで — 重なりが薄い lag は推定が暴れる
+	var maxLag = Math.min(15, len - 2);
+	for (var lag = 3; lag <= maxLag; lag++) {
+		var r = 0, cnt = 0;
+		for (i = 0; i + lag < len; i++) { r += c[i] * c[i + lag]; cnt++; }
+		r = r / cnt / r0;
 		if (r > best) best = r;
 	}
-	// ノイズでも短系列の自己相関ピークは ~0.5 出るため、有意分のみ残す
-	return clamp((best / r0 - 0.5) * 2, 0, 1);
+	// 弱い周期性 (ノイズの自己相関) は床で切り、真の周期性だけ通す
+	return clamp((best - 0.35) / 0.65, 0, 1);
 }
 
 // ---- Phase 4 段階1: ドリフト方策 ----
@@ -837,7 +857,13 @@ function selfstep() {
 	} else if (seg === 2) {
 		u = [0.4 * Math.sin(2 * Math.PI * 12 * stT) + nz(0.05), nz(0.05), nz(0.05)];
 	} else if (seg === 3) {
-		u = [0.3 * Math.sin(2 * Math.PI * 1.0 * stT), 0, 0];
+		// リズム: 1Hz の拍 = 手首のフリック的な回転バースト (向きは拍ごとに交互) +
+		// 小さな並進パルス。純正弦は張力と区別がつかない動きなので使わない
+		var rph = stT % 1;
+		var renv = rph < 0.15 ? Math.sin(Math.PI * rph / 0.15) : 0;
+		var rdir = (Math.floor(stT) % 2) ? -1 : 1;
+		w = [0, 0, rdir * 2 * renv];
+		u = [0.12 * renv * Math.sin(2 * Math.PI * 6 * stT), nz(0.02), nz(0.02)];
 	} else if (seg === 4) {
 		// 平面スピン: 傾きを変えず自身を中心に回転 (半径≈0で遠心加速度なし)。
 		// 実機で沈んでいたケースなので、遠心力ゼロでも立つことを検証する
@@ -845,9 +871,10 @@ function selfstep() {
 		w = [0, 0, wz];
 		u = [nz(0.02), nz(0.02), nz(0.02)];
 	} else if (seg === 5) {
-		// ゆっくり加速して減速 (周期3秒: 張力・リズムの帯域より遅い)
-		var ph = stT % 3;
-		var mag = ph < 1.5 ? ph * 0.8 : (3 - ph) * 0.8;
+		// セグメントいっぱいの長い加速→長い減速 1回 (5秒)。周期が自己相関の
+		// 窓 (1.5s) を超えるのでリズムには乗らず、持続的な慣性感だけが立つ
+		var ph = stT % 5;
+		var mag = ph < 2.5 ? ph * 0.8 : (5 - ph) * 0.8;
 		u = [mag, 0, 0];
 	} else if (seg === 6) {
 		// 関節: 大きな円弧を描いて止まる (0.7秒スイング + 0.5秒停止、向きは交互)
