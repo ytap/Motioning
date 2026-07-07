@@ -1,0 +1,13 @@
+{
+	"comment": "ドリフトの到達可能性行列 (行=今のターゲット、列=次の候補、0-1、近い動きほど1)。列の順: balance rotation articulation acceleration deceleration gravity vibration rhythm tension stillness。編集したらパッチの 'import mapping.json' → 'loadmap' をクリック。音の設計はここではなく elem.<名前>~.maxpat で行う",
+	"reach_balance":      [0,   0.3, 0.4, 0.4, 0.5, 0.9, 0.3, 0.3, 0.7, 0.8],
+	"reach_rotation":     [0.3, 0,   0.8, 0.7, 0.5, 0.3, 0.4, 0.7, 0.3, 0.2],
+	"reach_articulation": [0.4, 0.8, 0,   0.6, 0.7, 0.4, 0.4, 0.8, 0.5, 0.4],
+	"reach_acceleration": [0.4, 0.7, 0.6, 0,   0.9, 0.6, 0.5, 0.7, 0.3, 0.2],
+	"reach_deceleration": [0.5, 0.5, 0.7, 0.9, 0,   0.6, 0.3, 0.5, 0.5, 0.8],
+	"reach_gravity":      [0.9, 0.3, 0.4, 0.6, 0.6, 0,   0.3, 0.4, 0.7, 0.6],
+	"reach_vibration":    [0.3, 0.4, 0.4, 0.5, 0.3, 0.3, 0,   0.7, 0.9, 0.4],
+	"reach_rhythm":       [0.3, 0.7, 0.8, 0.7, 0.5, 0.4, 0.7, 0,   0.4, 0.3],
+	"reach_tension":      [0.7, 0.3, 0.5, 0.3, 0.5, 0.7, 0.9, 0.4, 0,   0.9],
+	"reach_stillness":    [0.8, 0.2, 0.4, 0.2, 0.8, 0.6, 0.4, 0.3, 0.9, 0  ]
+}
