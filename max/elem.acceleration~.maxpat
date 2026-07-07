@@ -12,8 +12,8 @@
 		"rect": [
 			60,
 			60,
-			760,
-			560
+			860,
+			640
 		],
 		"bglocked": 0,
 		"openinpresentation": 0,
@@ -39,10 +39,10 @@
 					"patching_rect": [
 						20,
 						12,
-						700,
+						780,
 						22
 					],
-					"text": "要素ボイス: acceleration (加速) — 運動プロファイル: impulsive。中身は自由に作り替えてよい"
+					"text": "要素ボイス: acceleration (加速) — 運動プロファイル: impulsive。ツマミで調整、中身は自由に作り替えてよい"
 				}
 			},
 			{
@@ -54,7 +54,7 @@
 					"patching_rect": [
 						20,
 						32,
-						720,
+						800,
 						22
 					],
 					"text": "契約: ed-acts=活性(0..1)リスト / ed-weights=スポットライト重み / ed-events=arc-stop・onset。出力は outlet (signal) へ"
@@ -159,10 +159,10 @@
 					"patching_rect": [
 						20,
 						130,
-						300,
+						320,
 						22
 					],
-					"text": "↓ この要素の活性 a × 重み w = 駆動量"
+					"text": "↓ この要素の活性 a × 重み w = 駆動量 (入力必須の心臓部)"
 				}
 			},
 			{
@@ -267,10 +267,10 @@
 					"patching_rect": [
 						540,
 						130,
-						200,
+						250,
 						22
 					],
-					"text": "↑ 円弧の完結 / 動き出し (トリガ用)"
+					"text": "↑ 円弧の完結 / 動き出し (打撃系のトリガ)"
 				}
 			},
 			{
@@ -281,11 +281,11 @@
 					"numoutlets": 1,
 					"patching_rect": [
 						20,
-						270,
-						80,
+						380,
+						90,
 						22
 					],
-					"text": "saw~ 659",
+					"text": "cycle~ 659",
 					"outlettype": [
 						"signal"
 					]
@@ -299,11 +299,11 @@
 					"numoutlets": 1,
 					"patching_rect": [
 						20,
-						302,
-						110,
+						412,
+						130,
 						22
 					],
-					"text": "lores~ 1800 0.2",
+					"text": "lores~ 1500 0.2",
 					"outlettype": [
 						"signal"
 					]
@@ -312,12 +312,64 @@
 			{
 				"box": {
 					"id": "obj-16",
+					"maxclass": "message",
+					"numinlets": 2,
+					"numoutlets": 1,
+					"patching_rect": [
+						540,
+						170,
+						90,
+						22
+					],
+					"text": "$1, 0. 250",
+					"outlettype": [
+						""
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-17",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						540,
+						200,
+						45,
+						22
+					],
+					"text": "line~",
+					"outlettype": [
+						"signal",
+						"bang"
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-18",
+					"maxclass": "comment",
+					"numinlets": 1,
+					"numoutlets": 0,
+					"patching_rect": [
+						635,
+						172,
+						200,
+						22
+					],
+					"text": "← 打撃の減衰 (msはここを編集)"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-19",
 					"maxclass": "newobj",
 					"numinlets": 2,
 					"numoutlets": 1,
 					"patching_rect": [
 						20,
-						334,
+						476,
 						50,
 						22
 					],
@@ -329,17 +381,17 @@
 			},
 			{
 				"box": {
-					"id": "obj-17",
+					"id": "obj-20",
 					"maxclass": "newobj",
 					"numinlets": 2,
 					"numoutlets": 1,
 					"patching_rect": [
-						20,
-						366,
-						55,
+						200,
+						476,
+						60,
 						22
 					],
-					"text": "*~ 0.5",
+					"text": "*~ 0.15",
 					"outlettype": [
 						"signal"
 					]
@@ -347,17 +399,279 @@
 			},
 			{
 				"box": {
-					"id": "obj-18",
+					"id": "obj-21",
+					"maxclass": "newobj",
+					"numinlets": 2,
+					"numoutlets": 1,
+					"patching_rect": [
+						20,
+						508,
+						45,
+						22
+					],
+					"text": "+~",
+					"outlettype": [
+						"signal"
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-22",
+					"maxclass": "newobj",
+					"numinlets": 2,
+					"numoutlets": 1,
+					"patching_rect": [
+						20,
+						540,
+						50,
+						22
+					],
+					"text": "*~",
+					"outlettype": [
+						"signal"
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-23",
+					"maxclass": "newobj",
+					"numinlets": 2,
+					"numoutlets": 1,
+					"patching_rect": [
+						20,
+						572,
+						60,
+						22
+					],
+					"text": "*~ 0.6",
+					"outlettype": [
+						"signal"
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-24",
 					"maxclass": "outlet",
 					"numinlets": 1,
 					"numoutlets": 0,
 					"patching_rect": [
 						20,
-						410,
+						612,
 						30,
 						30
 					],
 					"comment": "audio out"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-25",
+					"maxclass": "comment",
+					"numinlets": 1,
+					"numoutlets": 0,
+					"patching_rect": [
+						20,
+						270,
+						90,
+						22
+					],
+					"text": "音高(Hz)"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-26",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						20,
+						290,
+						90,
+						22
+					],
+					"text": "loadmess 659",
+					"outlettype": [
+						""
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-27",
+					"maxclass": "flonum",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						20,
+						320,
+						70,
+						22
+					],
+					"outlettype": [
+						"",
+						"bang"
+					],
+					"parameter_enable": 0
+				}
+			},
+			{
+				"box": {
+					"id": "obj-28",
+					"maxclass": "comment",
+					"numinlets": 1,
+					"numoutlets": 0,
+					"patching_rect": [
+						170,
+						270,
+						90,
+						22
+					],
+					"text": "明るさ(cutoff)"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-29",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						170,
+						290,
+						90,
+						22
+					],
+					"text": "loadmess 1500",
+					"outlettype": [
+						""
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-30",
+					"maxclass": "flonum",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						170,
+						320,
+						70,
+						22
+					],
+					"outlettype": [
+						"",
+						"bang"
+					],
+					"parameter_enable": 0
+				}
+			},
+			{
+				"box": {
+					"id": "obj-31",
+					"maxclass": "comment",
+					"numinlets": 1,
+					"numoutlets": 0,
+					"patching_rect": [
+						320,
+						270,
+						90,
+						22
+					],
+					"text": "レゾナンス"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-32",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						320,
+						290,
+						90,
+						22
+					],
+					"text": "loadmess 0.2",
+					"outlettype": [
+						""
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-33",
+					"maxclass": "flonum",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						320,
+						320,
+						70,
+						22
+					],
+					"outlettype": [
+						"",
+						"bang"
+					],
+					"parameter_enable": 0
+				}
+			},
+			{
+				"box": {
+					"id": "obj-34",
+					"maxclass": "comment",
+					"numinlets": 1,
+					"numoutlets": 0,
+					"patching_rect": [
+						470,
+						270,
+						90,
+						22
+					],
+					"text": "音量"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-35",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						470,
+						290,
+						90,
+						22
+					],
+					"text": "loadmess 0.6",
+					"outlettype": [
+						""
+					]
+				}
+			},
+			{
+				"box": {
+					"id": "obj-36",
+					"maxclass": "flonum",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						470,
+						320,
+						70,
+						22
+					],
+					"outlettype": [
+						"",
+						"bang"
+					],
+					"parameter_enable": 0
 				}
 			}
 		],
@@ -461,11 +775,95 @@
 			{
 				"patchline": {
 					"source": [
+						"obj-12",
+						1
+					],
+					"destination": [
+						"obj-16",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-16",
+						0
+					],
+					"destination": [
+						"obj-17",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
 						"obj-15",
 						0
 					],
 					"destination": [
-						"obj-16",
+						"obj-19",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-17",
+						0
+					],
+					"destination": [
+						"obj-19",
+						1
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-15",
+						0
+					],
+					"destination": [
+						"obj-20",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-19",
+						0
+					],
+					"destination": [
+						"obj-21",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-20",
+						0
+					],
+					"destination": [
+						"obj-21",
+						1
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-21",
+						0
+					],
+					"destination": [
+						"obj-22",
 						0
 					]
 				}
@@ -477,7 +875,7 @@
 						0
 					],
 					"destination": [
-						"obj-16",
+						"obj-22",
 						1
 					]
 				}
@@ -485,11 +883,11 @@
 			{
 				"patchline": {
 					"source": [
-						"obj-16",
+						"obj-22",
 						0
 					],
 					"destination": [
-						"obj-17",
+						"obj-23",
 						0
 					]
 				}
@@ -497,12 +895,108 @@
 			{
 				"patchline": {
 					"source": [
-						"obj-17",
+						"obj-23",
 						0
 					],
 					"destination": [
-						"obj-18",
+						"obj-24",
 						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-26",
+						0
+					],
+					"destination": [
+						"obj-27",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-27",
+						0
+					],
+					"destination": [
+						"obj-14",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-29",
+						0
+					],
+					"destination": [
+						"obj-30",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-30",
+						0
+					],
+					"destination": [
+						"obj-15",
+						1
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-32",
+						0
+					],
+					"destination": [
+						"obj-33",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-33",
+						0
+					],
+					"destination": [
+						"obj-15",
+						2
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-35",
+						0
+					],
+					"destination": [
+						"obj-36",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-36",
+						0
+					],
+					"destination": [
+						"obj-23",
+						1
 					]
 				}
 			}

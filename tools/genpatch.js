@@ -54,16 +54,38 @@ function writePatch(P, file) {
 // ================= 要素ボイス (10ファイル) =================
 // 契約: r ed-acts (10要素の活性リスト) / r ed-weights (スポットライト重み) /
 //       r ed-events (arc-stop, onset) を受け、outlet 1 (signal) に音を出す。
-//       中身は自由に作り替えてよい。既定は a×w で開く単純なドローン
+//       既定音は運動プロファイル準拠 (sus=持続 / am=反復 / imp=打撃)。
+//       ツマミ (number box) で音高・明るさ・レゾ・AM速度・音量を調整できる
+var VOICE = [
+	{ type: 'sus', wave: 'saw~',   freq: 392,  cutoff: 2000, reso: 0.2,             level: 0.5  }, // balance
+	{ type: 'am',  wave: 'saw~',   freq: 294,  cutoff: 1800, reso: 0.2,  rate: 6,   level: 0.5  }, // rotation
+	{ type: 'imp', wave: 'cycle~', freq: 523,  cutoff: 1500, reso: 0.2,  decay: 500, ev: 0, level: 0.6 }, // articulation (arc-stop)
+	{ type: 'imp', wave: 'cycle~', freq: 659,  cutoff: 1500, reso: 0.2,  decay: 250, ev: 1, level: 0.6 }, // acceleration (onset)
+	{ type: 'sus', wave: 'saw~',   freq: 220,  cutoff: 700,  reso: 0.1,             level: 0.5  }, // deceleration
+	{ type: 'sus', wave: 'saw~',   freq: 65,   cutoff: 400,  reso: 0.3,             level: 0.7  }, // gravity
+	{ type: 'am',  wave: 'saw~',   freq: 1046, cutoff: 4000, reso: 0.1,  rate: 16,  level: 0.4  }, // vibration
+	{ type: 'am',  wave: 'saw~',   freq: 330,  cutoff: 1500, reso: 0.2,  rate: 2,   level: 0.5  }, // rhythm
+	{ type: 'sus', wave: 'saw~',   freq: 466,  cutoff: 1200, reso: 0.85,            level: 0.45 }, // tension
+	{ type: 'sus', wave: 'cycle~', freq: 262,  cutoff: 3000, reso: 0,               level: 0.5  }  // stillness
+];
+function knob(V, x, y, label, val, dstId, dstIn) {
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x, y: y, w: 90, text: label });
+	var lm = box(V, { text: 'loadmess ' + val, ins: 1, outs: 1, x: x, y: y + 20, w: 90 });
+	var nb = box(V, { maxclass: 'flonum', ins: 1, outs: 2, x: x, y: y + 50, w: 70, types: ['', 'bang'], extra: { parameter_enable: 0 } });
+	conn(V, lm, 0, nb, 0);
+	conn(V, nb, 0, dstId, dstIn);
+	return nb;
+}
 for (var vi = 0; vi < 10; vi++) {
-	var V = newPatcher(760, 560);
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 12, w: 700, text: '要素ボイス: ' + NAMES[vi] + ' (' + JP[vi] + ') — 運動プロファイル: ' + ARCH[vi] + '。中身は自由に作り替えてよい' });
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 32, w: 720, text: '契約: ed-acts=活性(0..1)リスト / ed-weights=スポットライト重み / ed-events=arc-stop・onset。出力は outlet (signal) へ' });
+	var c = VOICE[vi];
+	var V = newPatcher(860, 640);
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 12, w: 780, text: '要素ボイス: ' + NAMES[vi] + ' (' + JP[vi] + ') — 運動プロファイル: ' + ARCH[vi] + '。ツマミで調整、中身は自由に作り替えてよい' });
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 32, w: 800, text: '契約: ed-acts=活性(0..1)リスト / ed-weights=スポットライト重み / ed-events=arc-stop・onset。出力は outlet (signal) へ' });
 	var rA = box(V, { text: 'r ed-acts', ins: 0, outs: 1, x: 20, y: 70, w: 70 });
 	var upA = box(V, { text: 'unpack 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.', ins: 1, outs: 10, x: 20, y: 100, w: 230 });
 	var rW = box(V, { text: 'r ed-weights', ins: 0, outs: 1, x: 280, y: 70, w: 85 });
 	var upW = box(V, { text: 'unpack 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.', ins: 1, outs: 10, x: 280, y: 100, w: 230 });
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 130, w: 300, text: '↓ この要素の活性 a × 重み w = 駆動量' });
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 130, w: 320, text: '↓ この要素の活性 a × 重み w = 駆動量 (入力必須の心臓部)' });
 	var mul = box(V, { text: '* 0.', ins: 2, outs: 1, x: 20, y: 160, w: 50 });
 	var pk = box(V, { text: 'pack 0. 50', ins: 2, outs: 1, x: 20, y: 190, w: 70 });
 	var ln = box(V, { text: 'line~', ins: 1, outs: 2, x: 20, y: 220, w: 45, types: ['signal', 'bang'] });
@@ -73,22 +95,61 @@ for (var vi = 0; vi < 10; vi++) {
 	conn(V, upW, vi, mul, 1);
 	conn(V, mul, 0, pk, 0);
 	conn(V, pk, 0, ln, 0);
-	// イベント (未接続で置いておく — 打撃系の音を作るときに使う)
 	var rE = box(V, { text: 'r ed-events', ins: 0, outs: 1, x: 540, y: 70, w: 85 });
 	var rtE = box(V, { text: 'route arc-stop onset', ins: 1, outs: 3, x: 540, y: 100, w: 130 });
 	conn(V, rE, 0, rtE, 0);
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 540, y: 130, w: 200, text: '↑ 円弧の完結 / 動き出し (トリガ用)' });
-	// 既定の音: saw~ → lores~ → *~ 駆動量
-	var osc = box(V, { text: 'saw~ ' + FREQ[vi], ins: 2, outs: 1, x: 20, y: 270, w: 80, types: sig(1) });
-	var flt = box(V, { text: 'lores~ 1800 0.2', ins: 3, outs: 1, x: 20, y: 302, w: 110, types: sig(1) });
-	var amp = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: 334, w: 50, types: sig(1) });
-	var att = box(V, { text: '*~ 0.5', ins: 2, outs: 1, x: 20, y: 366, w: 55, types: sig(1) });
-	var outl = box(V, { maxclass: 'outlet', ins: 1, outs: 0, x: 20, y: 410, w: 30, h: 30, extra: { comment: 'audio out' } });
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 540, y: 130, w: 250, text: '↑ 円弧の完結 / 動き出し (打撃系のトリガ)' });
+
+	// ---- 音の本体 ----
+	var Y = 380;
+	var osc = box(V, { text: c.wave + ' ' + c.freq, ins: 2, outs: 1, x: 20, y: Y, w: 90, types: sig(1) });
+	var flt = box(V, { text: 'lores~ ' + c.cutoff + ' ' + c.reso, ins: 3, outs: 1, x: 20, y: Y + 32, w: 130, types: sig(1) });
 	conn(V, osc, 0, flt, 0);
-	conn(V, flt, 0, amp, 0);
+	var chain = flt;
+
+	if (c.type === 'am') {
+		var lfo = box(V, { text: 'cycle~ ' + c.rate, ins: 2, outs: 1, x: 200, y: Y, w: 80, types: sig(1) });
+		var lfoH = box(V, { text: '*~ 0.5', ins: 2, outs: 1, x: 200, y: Y + 32, w: 55, types: sig(1) });
+		var lfo01 = box(V, { text: '+~ 0.5', ins: 2, outs: 1, x: 200, y: Y + 64, w: 55, types: sig(1) });
+		var amM = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: Y + 96, w: 50, types: sig(1) });
+		conn(V, lfo, 0, lfoH, 0); conn(V, lfoH, 0, lfo01, 0);
+		conn(V, chain, 0, amM, 0); conn(V, lfo01, 0, amM, 1);
+		chain = amM;
+		knob(V, 620, Y, 'AM速度(Hz)', c.rate, lfo, 0);
+	}
+	if (c.type === 'imp') {
+		// イベント → "$1, 0. decay" → line~ = 減衰エンベロープ (メッセージ内の数字が減衰ms)
+		var msgE = box(V, { maxclass: 'message', text: '$1, 0. ' + c.decay, ins: 2, outs: 1, x: 540, y: 170, w: 90 });
+		var envL = box(V, { text: 'line~', ins: 1, outs: 2, x: 540, y: 200, w: 45, types: ['signal', 'bang'] });
+		conn(V, rtE, c.ev, msgE, 0);
+		conn(V, msgE, 0, envL, 0);
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 635, y: 172, w: 200, text: '← 打撃の減衰 (msはここを編集)' });
+		var ping = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: Y + 96, w: 50, types: sig(1) });
+		conn(V, chain, 0, ping, 0);
+		conn(V, envL, 0, ping, 1);
+		// うっすら持続層 (探索の手がかり用)
+		var sus2 = box(V, { text: '*~ 0.15', ins: 2, outs: 1, x: 200, y: Y + 96, w: 60, types: sig(1) });
+		conn(V, flt, 0, sus2, 0);
+		var mix = box(V, { text: '+~', ins: 2, outs: 1, x: 20, y: Y + 128, w: 45, types: sig(1) });
+		conn(V, ping, 0, mix, 0);
+		conn(V, sus2, 0, mix, 1);
+		chain = mix;
+	}
+
+	var amp = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: Y + 160, w: 50, types: sig(1) });
+	var att = box(V, { text: '*~ ' + c.level, ins: 2, outs: 1, x: 20, y: Y + 192, w: 60, types: sig(1) });
+	var outl = box(V, { maxclass: 'outlet', ins: 1, outs: 0, x: 20, y: Y + 232, w: 30, h: 30, extra: { comment: 'audio out' } });
+	conn(V, chain, 0, amp, 0);
 	conn(V, ln, 0, amp, 1);
 	conn(V, amp, 0, att, 0);
 	conn(V, att, 0, outl, 0);
+
+	// ツマミ (loadmess で初期値 → number box → 各インレット)
+	knob(V, 20, 270, '音高(Hz)', c.freq, osc, 0);
+	knob(V, 170, 270, '明るさ(cutoff)', c.cutoff, flt, 1);
+	knob(V, 320, 270, 'レゾナンス', c.reso, flt, 2);
+	knob(V, 470, 270, '音量', c.level, att, 1);
+
 	writePatch(V, path.join(outDir, 'elem.' + NAMES[vi] + '~.maxpat'));
 }
 
