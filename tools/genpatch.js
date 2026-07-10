@@ -57,16 +57,16 @@ function writePatch(P, file) {
 //       既定音は運動プロファイル準拠 (sus=持続 / am=反復 / imp=打撃)。
 //       ツマミ (number box) で音高・明るさ・レゾ・AM速度・音量を調整できる
 var VOICE = [
-	{ type: 'sus', wave: 'saw~',   freq: 392,  cutoff: 2000, reso: 0.2,             level: 0.5  }, // balance
-	{ type: 'am',  wave: 'saw~',   freq: 294,  cutoff: 1800, reso: 0.2,  rate: 6,   level: 0.5  }, // rotation
-	{ type: 'imp', wave: 'cycle~', freq: 523,  cutoff: 1500, reso: 0.2,  decay: 500, ev: 0, level: 0.6 }, // articulation (arc-stop)
-	{ type: 'imp', wave: 'cycle~', freq: 659,  cutoff: 1500, reso: 0.2,  decay: 250, ev: 1, level: 0.6 }, // acceleration (onset)
-	{ type: 'sus', wave: 'saw~',   freq: 220,  cutoff: 700,  reso: 0.1,             level: 0.5  }, // deceleration
-	{ type: 'sus', wave: 'saw~',   freq: 65,   cutoff: 400,  reso: 0.3,             level: 0.7  }, // gravity
-	{ type: 'am',  wave: 'saw~',   freq: 1046, cutoff: 4000, reso: 0.1,  rate: 16,  level: 0.4  }, // vibration
-	{ type: 'am',  wave: 'saw~',   freq: 330,  cutoff: 1500, reso: 0.2,  rate: 2,   level: 0.5  }, // rhythm
-	{ type: 'sus', wave: 'saw~',   freq: 466,  cutoff: 1200, reso: 0.85,            level: 0.45 }, // tension
-	{ type: 'sus', wave: 'cycle~', freq: 262,  cutoff: 3000, reso: 0,               level: 0.5  }  // stillness
+	{ air: { chord: [392, 494, 587], q: 30, level: 0.25 }, nyoGlide: { f0: 392, level: 0.5 } }, // balance
+	{ nyoGlide: { f0: 294, level: 0.6 }, air: { chord: [294, 441], q: 20, level: 0.15 } }, // rotation
+	{ nyoSwoop: { ev: 0, fStart: 785, f0: 523, swoopMs: 350, ampMs: 500, level: 0.7 }, air: { chord: [523, 784], q: 40, level: 0.12 } }, // articulation (arc-stop)
+	{ nyoSwoop: { ev: 1, fStart: 330, f0: 659, swoopMs: 200, ampMs: 300, level: 0.7 }, air: { chord: [1319, 1976], q: 15, level: 0.2 } }, // acceleration (onset)
+	{ air: { chord: [220, 277, 330], q: 25, level: 0.4 }, nyoGlide: { f0: 220, level: 0.3 } }, // deceleration
+	{ air: { chord: [65, 98, 131], q: 35, level: 0.8 } }, // gravity
+	{ air: { chord: [1568, 2093, 2637], q: 25, level: 0.5 } }, // vibration
+	{ air: { chord: [330, 392], q: 60, level: 0.5 } }, // rhythm
+	{ air: { chord: [466, 699], q: 120, level: 0.45 } }, // tension
+	{ air: { chord: [262, 330, 392], q: 18, level: 0.5 } } // stillness
 ];
 function knob(V, x, y, label, val, dstId, dstIn) {
 	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x, y: y, w: 90, text: label });
@@ -76,9 +76,82 @@ function knob(V, x, y, label, val, dstId, dstIn) {
 	conn(V, nb, 0, dstId, dstIn);
 	return nb;
 }
+// 空気 (noise~ → reson~ 並列コード → +~ 合流) エンジンを生成
+function buildAir(V, cfg, x, y, driveId) {
+	var noise = box(V, { text: 'noise~', ins: 1, outs: 1, x: x, y: y, w: 60, types: sig(1) });
+	var resons = [];
+	for (var ri = 0; ri < cfg.chord.length; ri++) {
+		var rz = box(V, { text: 'reson~ 1. ' + cfg.chord[ri] + ' ' + cfg.q, ins: 4, outs: 1, x: x + ri * 140, y: y + 32, w: 130, types: sig(1) });
+		conn(V, noise, 0, rz, 0);
+		resons.push(rz);
+	}
+	var sum = resons[0];
+	for (var rj = 1; rj < resons.length; rj++) {
+		var add = box(V, { text: '+~', ins: 2, outs: 1, x: x + rj * 140, y: y + 64, w: 45, types: sig(1) });
+		conn(V, sum, 0, add, 0);
+		conn(V, resons[rj], 0, add, 1);
+		sum = add;
+	}
+	var norm = box(V, { text: '*~ 0.33', ins: 2, outs: 1, x: x, y: y + 96, w: 60, types: sig(1) });
+	conn(V, sum, 0, norm, 0);
+	var drv = box(V, { text: '*~', ins: 2, outs: 1, x: x, y: y + 128, w: 50, types: sig(1) });
+	conn(V, norm, 0, drv, 0);
+	conn(V, driveId, 0, drv, 1);
+	var lvl = box(V, { text: '*~ ' + cfg.level, ins: 2, outs: 1, x: x, y: y + 160, w: 60, types: sig(1) });
+	conn(V, drv, 0, lvl, 0);
+	// ツマミ: 空気音量 (lvl 右インレット), レゾQ (各 reson~ inlet 3)
+	var volNb = knob(V, x, y + 200, '空気音量', cfg.level, lvl, 1);
+	var qNb = knob(V, x + 130, y + 200, 'レゾQ', cfg.q, resons[0], 3);
+	for (var rk = 1; rk < resons.length; rk++) conn(V, qNb, 0, resons[rk], 3);
+	return lvl;
+}
+// にょろん: 連続グライド (駆動量float → scale → pack → line~ → cycle~ → *~駆動量line~ → *~レベル)
+function buildNyoGlide(V, cfg, x, y, mulId, driveId) {
+	var lo = Math.round(cfg.f0 * 0.7);
+	var hi = Math.round(cfg.f0 * 1.4);
+	var sc = box(V, { text: 'scale 0. 1. ' + lo + '. ' + hi + '.', ins: 6, outs: 1, x: x, y: y, w: 150, types: [''] });
+	conn(V, mulId, 0, sc, 0);
+	var pk = box(V, { text: 'pack 0. 200', ins: 2, outs: 1, x: x, y: y + 32, w: 70 });
+	conn(V, sc, 0, pk, 0);
+	var ln = box(V, { text: 'line~', ins: 1, outs: 2, x: x, y: y + 64, w: 45, types: ['signal', 'bang'] });
+	conn(V, pk, 0, ln, 0);
+	var cyc = box(V, { text: 'cycle~', ins: 2, outs: 1, x: x, y: y + 96, w: 60, types: sig(1) });
+	conn(V, ln, 0, cyc, 0);
+	var drv = box(V, { text: '*~', ins: 2, outs: 1, x: x, y: y + 128, w: 50, types: sig(1) });
+	conn(V, cyc, 0, drv, 0);
+	conn(V, driveId, 0, drv, 1);
+	var lvl = box(V, { text: '*~ ' + cfg.level, ins: 2, outs: 1, x: x, y: y + 160, w: 60, types: sig(1) });
+	conn(V, drv, 0, lvl, 0);
+	var volNb = knob(V, x, y + 200, 'にょろん音量', cfg.level, lvl, 1);
+	return { out: lvl, volNb: volNb };
+}
+// にょろん: イベントスウープ (route出力 → t b f → 振幅env / 周波数envでcycle~グライド)
+function buildNyoSwoop(V, cfg, x, y, rtId) {
+	var tbf = box(V, { text: 't b f', ins: 1, outs: 2, x: x, y: y, w: 50, types: ['bang', 'float'] });
+	conn(V, rtId, cfg.ev, tbf, 0);
+	// f (outlet 1) → 振幅エンベロープ
+	var msgAmp = box(V, { maxclass: 'message', text: '$1, 0. ' + cfg.ampMs, ins: 2, outs: 1, x: x, y: y + 32, w: 110 });
+	conn(V, tbf, 1, msgAmp, 0);
+	var envAmp = box(V, { text: 'line~', ins: 1, outs: 2, x: x, y: y + 64, w: 45, types: ['signal', 'bang'] });
+	conn(V, msgAmp, 0, envAmp, 0);
+	// b (outlet 0) → 周波数エンベロープ
+	var msgFreq = box(V, { maxclass: 'message', text: cfg.fStart + ', ' + cfg.f0 + ' ' + cfg.swoopMs, ins: 2, outs: 1, x: x + 150, y: y + 32, w: 130 });
+	conn(V, tbf, 0, msgFreq, 0);
+	var envFreq = box(V, { text: 'line~', ins: 1, outs: 2, x: x + 150, y: y + 64, w: 45, types: ['signal', 'bang'] });
+	conn(V, msgFreq, 0, envFreq, 0);
+	var cyc = box(V, { text: 'cycle~', ins: 2, outs: 1, x: x + 150, y: y + 96, w: 60, types: sig(1) });
+	conn(V, envFreq, 0, cyc, 0);
+	var mulAmp = box(V, { text: '*~', ins: 2, outs: 1, x: x, y: y + 128, w: 50, types: sig(1) });
+	conn(V, cyc, 0, mulAmp, 0);
+	conn(V, envAmp, 0, mulAmp, 1);
+	var lvl = box(V, { text: '*~ ' + cfg.level, ins: 2, outs: 1, x: x, y: y + 160, w: 60, types: sig(1) });
+	conn(V, mulAmp, 0, lvl, 0);
+	var volNb = knob(V, x, y + 200, 'にょろん音量', cfg.level, lvl, 1);
+	return { out: lvl, volNb: volNb };
+}
 for (var vi = 0; vi < 10; vi++) {
 	var c = VOICE[vi];
-	var V = newPatcher(860, 640);
+	var V = newPatcher(1000, 900);
 	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 12, w: 780, text: '要素ボイス: ' + NAMES[vi] + ' (' + JP[vi] + ') — 運動プロファイル: ' + ARCH[vi] + '。ツマミで調整、中身は自由に作り替えてよい' });
 	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 32, w: 800, text: '契約: ed-acts=活性(0..1)リスト / ed-weights=スポットライト重み / ed-events=arc-stop・onset。出力は outlet (signal) へ' });
 	var rA = box(V, { text: 'r ed-acts', ins: 0, outs: 1, x: 20, y: 70, w: 70 });
@@ -100,55 +173,41 @@ for (var vi = 0; vi < 10; vi++) {
 	conn(V, rE, 0, rtE, 0);
 	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 540, y: 130, w: 250, text: '↑ 円弧の完結 / 動き出し (打撃系のトリガ)' });
 
-	// ---- 音の本体 ----
+	// ---- 音の本体 (AIR / NYORON エンジン) ----
 	var Y = 380;
-	var osc = box(V, { text: c.wave + ' ' + c.freq, ins: 2, outs: 1, x: 20, y: Y, w: 90, types: sig(1) });
-	var flt = box(V, { text: 'lores~ ' + c.cutoff + ' ' + c.reso, ins: 3, outs: 1, x: 20, y: Y + 32, w: 130, types: sig(1) });
-	conn(V, osc, 0, flt, 0);
-	var chain = flt;
+	var branches = [];
+	var bx = 20;
 
-	if (c.type === 'am') {
-		var lfo = box(V, { text: 'cycle~ ' + c.rate, ins: 2, outs: 1, x: 200, y: Y, w: 80, types: sig(1) });
-		var lfoH = box(V, { text: '*~ 0.5', ins: 2, outs: 1, x: 200, y: Y + 32, w: 55, types: sig(1) });
-		var lfo01 = box(V, { text: '+~ 0.5', ins: 2, outs: 1, x: 200, y: Y + 64, w: 55, types: sig(1) });
-		var amM = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: Y + 96, w: 50, types: sig(1) });
-		conn(V, lfo, 0, lfoH, 0); conn(V, lfoH, 0, lfo01, 0);
-		conn(V, chain, 0, amM, 0); conn(V, lfo01, 0, amM, 1);
-		chain = amM;
-		knob(V, 620, Y, 'AM速度(Hz)', c.rate, lfo, 0);
+	if (c.air) {
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: bx, y: Y - 20, w: 300, text: '空気: noise→reson コード' });
+		var airOut = buildAir(V, c.air, bx, Y, ln);
+		branches.push(airOut);
+		bx += 460;
 	}
-	if (c.type === 'imp') {
-		// イベント → "$1, 0. decay" → line~ = 減衰エンベロープ (メッセージ内の数字が減衰ms)
-		var msgE = box(V, { maxclass: 'message', text: '$1, 0. ' + c.decay, ins: 2, outs: 1, x: 540, y: 170, w: 90 });
-		var envL = box(V, { text: 'line~', ins: 1, outs: 2, x: 540, y: 200, w: 45, types: ['signal', 'bang'] });
-		conn(V, rtE, c.ev, msgE, 0);
-		conn(V, msgE, 0, envL, 0);
-		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 635, y: 172, w: 200, text: '← 打撃の減衰 (msはここを編集)' });
-		var ping = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: Y + 96, w: 50, types: sig(1) });
-		conn(V, chain, 0, ping, 0);
-		conn(V, envL, 0, ping, 1);
-		// うっすら持続層 (探索の手がかり用)
-		var sus2 = box(V, { text: '*~ 0.15', ins: 2, outs: 1, x: 200, y: Y + 96, w: 60, types: sig(1) });
-		conn(V, flt, 0, sus2, 0);
-		var mix = box(V, { text: '+~', ins: 2, outs: 1, x: 20, y: Y + 128, w: 45, types: sig(1) });
-		conn(V, ping, 0, mix, 0);
-		conn(V, sus2, 0, mix, 1);
-		chain = mix;
+	if (c.nyoGlide) {
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: bx, y: Y - 20, w: 260, text: 'にょろん: 連続グライド' });
+		var glide = buildNyoGlide(V, c.nyoGlide, bx, Y, mul, ln);
+		branches.push(glide.out);
+		bx += 260;
+	}
+	if (c.nyoSwoop) {
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: bx, y: Y - 20, w: 300, text: 'にょろん: イベントスウープ' });
+		var swoop = buildNyoSwoop(V, c.nyoSwoop, bx, Y, rtE);
+		branches.push(swoop.out);
+		bx += 300;
 	}
 
-	var amp = box(V, { text: '*~', ins: 2, outs: 1, x: 20, y: Y + 160, w: 50, types: sig(1) });
-	var att = box(V, { text: '*~ ' + c.level, ins: 2, outs: 1, x: 20, y: Y + 192, w: 60, types: sig(1) });
-	var outl = box(V, { maxclass: 'outlet', ins: 1, outs: 0, x: 20, y: Y + 232, w: 30, h: 30, extra: { comment: 'audio out' } });
-	conn(V, chain, 0, amp, 0);
-	conn(V, ln, 0, amp, 1);
-	conn(V, amp, 0, att, 0);
-	conn(V, att, 0, outl, 0);
-
-	// ツマミ (loadmess で初期値 → number box → 各インレット)
-	knob(V, 20, 270, '音高(Hz)', c.freq, osc, 0);
-	knob(V, 170, 270, '明るさ(cutoff)', c.cutoff, flt, 1);
-	knob(V, 320, 270, 'レゾナンス', c.reso, flt, 2);
-	knob(V, 470, 270, '音量', c.level, att, 1);
+	// 全エンジンを +~ で合流 → outlet
+	var sumId = branches[0];
+	var sumY = Y + 420;
+	for (var bi = 1; bi < branches.length; bi++) {
+		var addB = box(V, { text: '+~', ins: 2, outs: 1, x: 20 + bi * 60, y: sumY, w: 45, types: sig(1) });
+		conn(V, sumId, 0, addB, 0);
+		conn(V, branches[bi], 0, addB, 1);
+		sumId = addB;
+	}
+	var outl = box(V, { maxclass: 'outlet', ins: 1, outs: 0, x: 20, y: sumY + 40, w: 30, h: 30, extra: { comment: 'audio out' } });
+	conn(V, sumId, 0, outl, 0);
 
 	writePatch(V, path.join(outDir, 'elem.' + NAMES[vi] + '~.maxpat'));
 }
