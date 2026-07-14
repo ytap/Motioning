@@ -367,7 +367,7 @@ conn(P, js, 1, rRate, 0);
 conn(P, rRate, 0, numRate, 0); conn(P, rRate, 1, prn, 0);
 
 // 制御ストリームの分配
-var route = box(P, { text: 'route weights gain spot event motion', ins: 1, outs: 6, x: 30, y: 380, w: 240 });
+var route = box(P, { text: 'route weights gain spot event motion distance', ins: 1, outs: 7, x: 30, y: 380, w: 260 });
 conn(P, js, 2, route, 0);
 var sW = box(P, { text: 's ed-weights', ins: 1, outs: 0, x: 30, y: 420, w: 90 });
 conn(P, route, 0, sW, 0);
@@ -384,6 +384,29 @@ conn(P, route, 3, sE, 0);
 var sMotion = box(P, { text: 's ed-motion', ins: 1, outs: 0, x: 840, y: 420, w: 90 });
 conn(P, route, 4, sMotion, 0);
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 840, y: 452, w: 200, text: '← 動きの生の激しさ (lin/rot/speed)' });
+
+// 距離感: 放置すると音が遠ざかる (こもる・ドライ減・残響増)、動くと戻る
+box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 30, y: 950, w: 500, text: '距離感: 放置すると音が遠ざかる (こもる・ドライ減・残響増)、動くと戻る' });
+var pkCut = box(P, { text: 'pack 0. 200', ins: 2, outs: 1, x: 30, y: 1010, w: 70 });
+var scCut = box(P, { text: 'scale 0. 1. 8000. 700.', ins: 6, outs: 1, x: 30, y: 980, w: 140 });
+conn(P, route, 5, scCut, 0);
+conn(P, scCut, 0, pkCut, 0);
+var lnCut = box(P, { text: 'line~', ins: 1, outs: 2, x: 30, y: 1040, w: 45, types: ['signal', 'bang'] });
+conn(P, pkCut, 0, lnCut, 0);
+
+var scDry = box(P, { text: 'scale 0. 1. 1. 0.3', ins: 6, outs: 1, x: 220, y: 980, w: 140 });
+conn(P, route, 5, scDry, 0);
+var pkDry = box(P, { text: 'pack 0. 200', ins: 2, outs: 1, x: 220, y: 1010, w: 70 });
+conn(P, scDry, 0, pkDry, 0);
+var lnDry = box(P, { text: 'line~', ins: 1, outs: 2, x: 220, y: 1040, w: 45, types: ['signal', 'bang'] });
+conn(P, pkDry, 0, lnDry, 0);
+
+var scWet = box(P, { text: 'scale 0. 1. 0.3 0.8', ins: 6, outs: 1, x: 410, y: 980, w: 140 });
+conn(P, route, 5, scWet, 0);
+var pkWet = box(P, { text: 'pack 0. 200', ins: 2, outs: 1, x: 410, y: 1010, w: 70 });
+conn(P, scWet, 0, pkWet, 0);
+var lnWet = box(P, { text: 'line~', ins: 1, outs: 2, x: 410, y: 1040, w: 45, types: ['signal', 'bang'] });
+conn(P, pkWet, 0, lnWet, 0);
 
 // 要素ボイス 10個 → 合流
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 30, y: 500, w: 700, text: '要素ボイス (それぞれ elem.<名前>~.maxpat を開いて音を設計する)' });
@@ -421,7 +444,16 @@ var wet = box(P, { text: '*~ 0.3', ins: 2, outs: 1, x: 700, y: 884, w: 55, types
 var gran = box(P, { text: 'fx.granular~', ins: 1, outs: 1, x: 30, y: 660, w: 130, types: sig(1) });
 conn(P, mg, 0, gran, 0);
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 170, y: 662, w: 260, text: '← Granulator (直近2秒を粒で再生)' });
-conn(P, gran, 0, fbIn, 0); conn(P, damp, 0, fbIn, 1);
+// 距離感: 去るほどこもる (cutoff が下がる)。lores~ を gran の直後に挿入
+var loresDist = box(P, { text: 'lores~ 8000. 0.2', ins: 3, outs: 1, x: 30, y: 690, w: 110, types: sig(1) });
+conn(P, gran, 0, loresDist, 0);
+conn(P, lnCut, 0, loresDist, 1);
+// 去るほどドライが痩せる
+var dryAtt = box(P, { text: '*~', ins: 2, outs: 1, x: 30, y: 720, w: 50, types: sig(1) });
+conn(P, loresDist, 0, dryAtt, 0);
+conn(P, lnDry, 0, dryAtt, 1);
+conn(P, loresDist, 0, fbIn, 0); conn(P, damp, 0, fbIn, 1);
+conn(P, lnWet, 0, wet, 1);
 conn(P, fbIn, 0, tin, 0);
 conn(P, tin, 0, tout, 0);
 conn(P, tout, 0, t1, 0); conn(P, tout, 1, t2, 0); conn(P, tout, 2, t3, 0); conn(P, tout, 3, t4, 0);
@@ -433,7 +465,7 @@ conn(P, damp, 0, wet, 0);
 var outSum = box(P, { text: '+~', ins: 2, outs: 1, x: 30, y: 740, w: 45, types: sig(1) });
 var outAtt = box(P, { text: '*~ 0.5', ins: 2, outs: 1, x: 30, y: 772, w: 55, types: sig(1) });
 var dac = box(P, { ins: 2, outs: 0, x: 30, y: 806, w: 45, h: 45, maxclass: 'ezdac~' });
-conn(P, gran, 0, outSum, 0); conn(P, wet, 0, outSum, 1);
+conn(P, dryAtt, 0, outSum, 0); conn(P, wet, 0, outSum, 1);
 conn(P, outSum, 0, outAtt, 0);
 conn(P, outAtt, 0, dac, 0); conn(P, outAtt, 0, dac, 1);
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 85, y: 815, w: 220, text: '← クリックでオーディオ ON/OFF' });

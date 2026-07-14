@@ -27,6 +27,7 @@ global.outlet = function (o) {
 		else if (args[0] === 'motion') {
 			lastCtl.mLin = args[1]; lastCtl.mRot = args[2]; lastCtl.mSpeed = args[3];
 		}
+		else if (args[0] === 'distance') lastCtl.distance = args[1];
 	}
 };
 global.arrayfromargs = function (a) { return Array.prototype.slice.call(a); };
@@ -190,6 +191,39 @@ var mSpeedOk = mSpeeds.length > 0 && mSpeeds.every(function (v) { return v >= 0 
 var mLinRange = rangeOf(mLins);
 pcheck('motionが出力される(lin/rot/speed, 0..1)', mLinOk && mRotOk && mSpeedOk);
 pcheck('motionが動的(mLin max-min>0.2)', (mLinRange.max - mLinRange.min) > 0.2);
+
+// ---- distance (距離感) の検証: 放置で去る / 動くと戻る ----
+selftest(0);
+accelmode(0);
+lastGravity = [0, 0, -1];
+var distIdle = [];
+for (var di = 0; di < Math.floor(30000 / 16); di++) {
+	simNow += 16;
+	ingestAccel(nz(0.005), nz(0.005), nz(0.005));
+	if (simNow - lastUpdate >= 50) {
+		update();
+		lastUpdate = simNow;
+		if (typeof lastCtl.distance === 'number') distIdle.push(lastCtl.distance);
+	}
+}
+var distMoveMax = -Infinity;
+for (var dm = 0; dm < Math.floor(5000 / 16); dm++) {
+	simNow += 16;
+	var tsec = dm * 16 / 1000;
+	var amp = 0.5 * Math.sin(2 * Math.PI * 8 * tsec);
+	ingestAccel(amp, nz(0.02), nz(0.02));
+	if (simNow - lastUpdate >= 50) {
+		update();
+		lastUpdate = simNow;
+		if (typeof lastCtl.distance === 'number' && lastCtl.distance > distMoveMax) distMoveMax = lastCtl.distance;
+	}
+}
+var distMoveEnd = lastCtl.distance;
+var distIdleMax = distIdle.length ? Math.max.apply(null, distIdle) : -Infinity;
+var distAllOk = distIdle.every(function (v) { return v >= 0 && v <= 1; });
+pcheck('放置で去る(distance>0.5)', distIdleMax > 0.5);
+pcheck('動くと戻る(distance<0.3)', distMoveEnd < 0.3);
+pcheck('distanceが0..1', distAllOk);
 
 console.log(fails === 0 ? 'ALL PASS' : fails + ' FAIL(S)');
 process.exit(fails === 0 ? 0 : 1);

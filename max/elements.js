@@ -8,6 +8,7 @@
 //   "spot <idx> <name>"   獲物 (prey) の argmax = 現在の「らしき」要素
 //   "event arc-stop <鋭さ>" / "event onset <強さ>"  離散イベント (打撃系の音に使う)
 //   "motion <lin> <rot> <speed>"  動きの生の激しさ (0..1、20Hz)。音色のミクロ変調に使う
+//   "distance <0..1>"     放置すると 0→1 に遠ざかる (こもる・残響が増す・音が去る)。動くと1-2秒で0へ戻る
 //
 // outlet 1: ステータス ("rate <Hz>", "accelmode ...", "novelty ... closeness ...",
 //   "prey <name> closeness <値>" (獲物の argmax が変わった時), "log ..." (logging 1 の間 200ms毎)、
@@ -73,6 +74,11 @@ var RESPONSE = [1, 1, 1, 1, 1, 1, 0.7, 1, 0.7, 1];
 var SPOT_TAU = 0.4;      // スポットライト重みのクロスフェード時定数 (秒)
 var GAIN_CURVE = 1.3;    // master gain のカーブ (closeness^この値)
 var GAIN_FLOOR = 0.08;   // 追跡モードの gain の下駄 (完全無音にはしない。勾配が消えると追えない)
+
+// ---- 距離感: 放置すると音が遠ざかる (こもる・ドライ減・残響増)、動くと戻る ----
+var IDLE_ONSET = 3;      // 秒。この間は放置しても去らない
+var IDLE_RAMP = 20;      // 秒。去りきるまで
+var RETURN_TAU = 1.2;    // 秒。戻りの時定数
 
 // ---- Phase 4 段階2: 追跡方策 (獲物 = 10要素単体上の連続な点を追いかける) ----
 // ダンサーの正規化した活性プロファイルから獲物 (prey) は逃げつつ、慣れていない
@@ -149,6 +155,9 @@ var prey = [];           // 獲物: 10要素単体上の点 (Σ=1, 各成分>=0)
 var closeness = 0;       // 1 - 0.5*Σ|prey - aN| (ダンサーとの近さ、単体距離から)
 var loggingOn = false;   // logging 1/0 の状態
 var lastLogT = 0;
+
+var idleT = 0;            // 静けさの持続時間 (秒)
+var distance = 0;         // 0=そば、1=去った (距離感ストリーム)
 
 function initPrey() {
 	prey = [];
@@ -275,6 +284,19 @@ function update() {
 	var rotN = clamp(curRotRMS / FAST_ROT, 0, 1);
 	outlet(2, "motion", Math.round(linN * 1000) / 1000, Math.round(rotN * 1000) / 1000,
 		Math.round(speed * 1000) / 1000);
+
+	// 距離感: 放置 (speed が小さい状態) が続くほど遠ざかる。動くと素早く戻る。
+	// 手動モード (音作り中) では邪魔なので distance = 0 に即す
+	if (spotManual >= 0) {
+		idleT = 0;
+		distance = 0;
+	} else {
+		if (speed < 0.08) idleT += sdt; else idleT = 0;
+		var distTarget = clamp((idleT - IDLE_ONSET) / IDLE_RAMP, 0, 1);
+		var distTau = distTarget > distance ? (IDLE_RAMP / 3) : RETURN_TAU;
+		distance += (distTarget - distance) * (1 - Math.exp(-sdt / distTau));
+	}
+	outlet(2, "distance", Math.round(distance * 1000) / 1000);
 
 	// selftest 中はセグメントごとに活性度を蓄積 (冒頭1.5秒の過渡は捨てる)
 	if (st && stSegLast >= 0 && (stT % 5) > 1.5) {
