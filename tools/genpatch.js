@@ -348,10 +348,12 @@ var mImport = box(P, { maxclass: 'message', text: 'import mapping.json', ins: 2,
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 870, y: 32, w: 300, text: '← reach (ドリフトの近さ) 編集後: これ → loadmap' });
 
 var js = box(P, { text: 'js elements.js', ins: 1, outs: 3, x: 30, y: 125, w: 100, extra: { saved_object_attributes: { filename: 'elements.js', parameter_enable: 0 } } });
-var rRate = box(P, { text: 'route rate', ins: 1, outs: 2, x: 160, y: 125, w: 70 });
+var rRate = box(P, { text: 'route rate battery', ins: 1, outs: 3, x: 160, y: 125, w: 110 });
 var numRate = box(P, { maxclass: 'flonum', ins: 1, outs: 2, x: 160, y: 155, w: 60, types: ['', 'bang'], extra: { parameter_enable: 0 } });
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 225, y: 157, w: 60, text: '受信Hz' });
-var prn = box(P, { text: 'print status', ins: 1, outs: 0, x: 290, y: 155, w: 80 });
+var numBattery = box(P, { maxclass: 'number', ins: 1, outs: 2, x: 300, y: 155, w: 60, types: ['', 'bang'], extra: { parameter_enable: 0 } });
+box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 365, y: 157, w: 80, text: 'バッテリー%' });
+var prn = box(P, { text: 'print status', ins: 1, outs: 0, x: 450, y: 155, w: 80 });
 
 var msl = box(P, { maxclass: 'multislider', ins: 1, outs: 2, x: 30, y: 195, w: 500, h: 140, extra: { setminmax: [0.0, 1.0], size: 10, parameter_enable: 0 } });
 box(P, { maxclass: 'comment', ins: 1, outs: 0, x: 30, y: 340, w: 560, text: '傾き    回転    関節    加速    減速    重力    振動    リズム    張力    静止' });
@@ -364,7 +366,7 @@ conn(P, mImport, 0, dict, 0);
 conn(P, js, 0, msl, 0);
 conn(P, js, 0, sActs, 0);
 conn(P, js, 1, rRate, 0);
-conn(P, rRate, 0, numRate, 0); conn(P, rRate, 1, prn, 0);
+conn(P, rRate, 0, numRate, 0); conn(P, rRate, 1, numBattery, 0); conn(P, rRate, 2, prn, 0);
 
 // 制御ストリームの分配
 var route = box(P, { text: 'route weights gain spot event motion distance', ins: 1, outs: 7, x: 30, y: 380, w: 260 });

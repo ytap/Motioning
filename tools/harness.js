@@ -225,5 +225,12 @@ pcheck('放置で去る(distance>0.5)', distIdleMax > 0.5);
 pcheck('動くと戻る(distance<0.3)', distMoveEnd < 0.3);
 pcheck('distanceが0..1', distAllOk);
 
+// ---- battery OSC パース ----
+logs.length = 0;
+messagename = '/x/battery';
+anything(0.83);
+messagename = '';
+pcheck('battery 83', logs.join('\n').indexOf('battery 83') >= 0);
+
 console.log(fails === 0 ? 'ALL PASS' : fails + ' FAIL(S)');
 process.exit(fails === 0 ? 0 : 1);

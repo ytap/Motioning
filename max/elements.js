@@ -12,7 +12,7 @@
 //
 // outlet 1: ステータス ("rate <Hz>", "accelmode ...", "novelty ... closeness ...",
 //   "prey <name> closeness <値>" (獲物の argmax が変わった時), "log ..." (logging 1 の間 200ms毎)、
-//   selftest ログ等
+//   "battery <0..100>" (変化時のみ)、selftest ログ等
 //
 // メッセージ:
 //   selftest 1 / 0   … 合成データで全パイプラインを検証 (電話不要)
@@ -158,6 +158,7 @@ var lastLogT = 0;
 
 var idleT = 0;            // 静けさの持続時間 (秒)
 var distance = 0;         // 0=そば、1=去った (距離感ストリーム)
+var lastBattery = null;   // 直近のバッテリー% (変化検出用、初回は必ず出す)
 
 function initPrey() {
 	prey = [];
@@ -182,6 +183,12 @@ function anything() {
 	} else if (name === "accel" && args.length >= 3) {
 		msgCount++;
 		ingestAccel(args[0], args[1], args[2]);
+	} else if (name === "battery" && args.length >= 1) {
+		var pct = Math.round(args[0] * 100);
+		if (lastBattery === null || pct !== lastBattery) {
+			lastBattery = pct;
+			outlet(1, "battery", pct);
+		}
 	}
 	// quaternion 等は Phase 2 以降で使用
 }
