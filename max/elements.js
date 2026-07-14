@@ -7,6 +7,7 @@
 //   "gain <0..1>"         master gain (closeness に応じる。追跡モードでは完全無音にしない)
 //   "spot <idx> <name>"   獲物 (prey) の argmax = 現在の「らしき」要素
 //   "event arc-stop <鋭さ>" / "event onset <強さ>"  離散イベント (打撃系の音に使う)
+//   "motion <lin> <rot> <speed>"  動きの生の激しさ (0..1、20Hz)。音色のミクロ変調に使う
 //
 // outlet 1: ステータス ("rate <Hz>", "accelmode ...", "novelty ... closeness ...",
 //   "prey <name> closeness <値>" (獲物の argmax が変わった時), "log ..." (logging 1 の間 200ms毎)、
@@ -268,6 +269,12 @@ function update() {
 	updateSpot(act, now, sdt);
 	emitControl(act, sdt);
 	detectOnset(now);
+
+	// motion: 動きの生の激しさ (音色のミクロ変調用。獲物の a_i ゲートを経由しない)
+	var linN = clamp(curLinRMS / FAST_LIN, 0, 1);
+	var rotN = clamp(curRotRMS / FAST_ROT, 0, 1);
+	outlet(2, "motion", Math.round(linN * 1000) / 1000, Math.round(rotN * 1000) / 1000,
+		Math.round(speed * 1000) / 1000);
 
 	// selftest 中はセグメントごとに活性度を蓄積 (冒頭1.5秒の過渡は捨てる)
 	if (st && stSegLast >= 0 && (stT % 5) > 1.5) {

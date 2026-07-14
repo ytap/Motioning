@@ -24,6 +24,9 @@ global.outlet = function (o) {
 		} else if (args[0] === 'gain') lastCtl.gain = args[1];
 		else if (args[0] === 'spot') lastCtl.spot = args[2];
 		else if (args[0] === 'event') events.push({ t: simNow, type: args[1] });
+		else if (args[0] === 'motion') {
+			lastCtl.mLin = args[1]; lastCtl.mRot = args[2]; lastCtl.mSpeed = args[3];
+		}
 	}
 };
 global.arrayfromargs = function (a) { return Array.prototype.slice.call(a); };
@@ -132,6 +135,7 @@ spotlight(-1);
 var pursuitLogStart = logs.length;
 var gains2 = [];
 var wSumOk = true, wNegOk = true;
+var mLins = [], mRots = [], mSpeeds = [];
 for (var d = 0; d < Math.floor(5000 * NSEG * 2 / 16); d++) {
 	simNow += 16;
 	selfstep();
@@ -139,6 +143,9 @@ for (var d = 0; d < Math.floor(5000 * NSEG * 2 / 16); d++) {
 		update();
 		lastUpdate = simNow;
 		if (typeof lastCtl.gain === 'number') gains2.push(lastCtl.gain);
+		if (typeof lastCtl.mLin === 'number') mLins.push(lastCtl.mLin);
+		if (typeof lastCtl.mRot === 'number') mRots.push(lastCtl.mRot);
+		if (typeof lastCtl.mSpeed === 'number') mSpeeds.push(lastCtl.mSpeed);
 		var wsum = 0, neg = false;
 		for (var wk = 0; wk < 10; wk++) {
 			var wv = lastCtl['w' + wk];
@@ -171,6 +178,18 @@ pcheck('weights が単体上(Σw≈1, 負値なし)', wSumOk && wNegOk);
 pcheck('獲物が動く(argmaxが3要素以上、またはprey変化2回以上)', Object.keys(preyTargets).length >= 3 || preyLogs.length >= 2);
 pcheck('gainが動的(min<0.3 かつ max>0.5)', gMin < 0.3 && gMax > 0.5);
 pcheck('gainがGAIN_FLOORを下回らない', gFloorOk);
+
+function rangeOf(a) {
+	var mn = Infinity, mx = -Infinity;
+	for (var i = 0; i < a.length; i++) { if (a[i] < mn) mn = a[i]; if (a[i] > mx) mx = a[i]; }
+	return { min: mn, max: mx };
+}
+var mLinOk = mLins.length > 0 && mLins.every(function (v) { return v >= 0 && v <= 1; });
+var mRotOk = mRots.length > 0 && mRots.every(function (v) { return v >= 0 && v <= 1; });
+var mSpeedOk = mSpeeds.length > 0 && mSpeeds.every(function (v) { return v >= 0 && v <= 1; });
+var mLinRange = rangeOf(mLins);
+pcheck('motionが出力される(lin/rot/speed, 0..1)', mLinOk && mRotOk && mSpeedOk);
+pcheck('motionが動的(mLin max-min>0.2)', (mLinRange.max - mLinRange.min) > 0.2);
 
 console.log(fails === 0 ? 'ALL PASS' : fails + ' FAIL(S)');
 process.exit(fails === 0 ? 0 : 1);
