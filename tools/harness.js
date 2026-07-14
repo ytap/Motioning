@@ -127,36 +127,50 @@ pcheck('gravity固定+鉛直→鳴る(gain>0.5)', pGrav.gain > 0.5);
 pcheck('stillness固定+静止→鳴る(gain>0.5)', pStill.gain > 0.5);
 pcheck('stillness固定+激しい動き→鳴らない(gain<0.3)', pStillMove.gain < 0.3);
 
-// ---- ドリフト方策の検証 ----
-SOLVE_S = 3; DWELL_S = 4; GIVEUP_S = 12;
+// ---- 追跡方策の検証 ----
 spotlight(-1);
-var driftLogStart = logs.length;
-var gains = [];
+var pursuitLogStart = logs.length;
+var gains2 = [];
+var wSumOk = true, wNegOk = true;
 for (var d = 0; d < Math.floor(5000 * NSEG * 2 / 16); d++) {
 	simNow += 16;
 	selfstep();
 	if (simNow - lastUpdate >= 50) {
 		update();
 		lastUpdate = simNow;
-		if (typeof lastCtl.gain === 'number') gains.push(lastCtl.gain);
+		if (typeof lastCtl.gain === 'number') gains2.push(lastCtl.gain);
+		var wsum = 0, neg = false;
+		for (var wk = 0; wk < 10; wk++) {
+			var wv = lastCtl['w' + wk];
+			if (typeof wv === 'number') {
+				wsum += wv;
+				if (wv < -1e-6) neg = true;
+			}
+		}
+		if (Math.abs(wsum - 1) > 0.05) wSumOk = false;
+		if (neg) wNegOk = false;
 	}
 }
-var drifts = [], targets = {};
-for (var dl = driftLogStart; dl < logs.length; dl++) {
-	if (logs[dl].indexOf('drift') === 0 && logs[dl].indexOf('->') >= 0) {
-		drifts.push(logs[dl]);
-		targets[logs[dl].split(' ').pop()] = 1;
+var preyLogs = [], preyTargets = {};
+for (var pl = pursuitLogStart; pl < logs.length; pl++) {
+	if (logs[pl].indexOf('prey') === 0) {
+		preyLogs.push(logs[pl]);
+		preyTargets[logs[pl].split(' ')[1]] = 1;
 	}
 }
-console.log('--- drift log (' + drifts.length + ' drifts) ---');
-for (var dd = 0; dd < drifts.length; dd++) console.log(drifts[dd]);
-var gSum = 0;
-for (var gg = 0; gg < gains.length; gg++) gSum += gains[gg];
-var gMean = gains.length ? gSum / gains.length : 0;
-console.log('mean gain (auto/drift):', gMean.toFixed(3));
-pcheck('ドリフトが起きる(3回以上)', drifts.length >= 3);
-pcheck('行き先が分散する(3要素以上)', Object.keys(targets).length >= 3);
-pcheck('温度リークで無音にならない(mean gain>0.05)', gMean > 0.05);
+console.log('--- prey log (' + preyLogs.length + ' 変化) ---');
+for (var pp = 0; pp < preyLogs.length; pp++) console.log(preyLogs[pp]);
+var gMin = Infinity, gMax = -Infinity, gFloorOk = true;
+for (var g2 = 0; g2 < gains2.length; g2++) {
+	if (gains2[g2] < gMin) gMin = gains2[g2];
+	if (gains2[g2] > gMax) gMax = gains2[g2];
+	if (gains2[g2] < GAIN_FLOOR - 1e-6) gFloorOk = false;
+}
+console.log('gain min/max (auto/pursuit):', gMin.toFixed(3), gMax.toFixed(3));
+pcheck('weights が単体上(Σw≈1, 負値なし)', wSumOk && wNegOk);
+pcheck('獲物が動く(argmaxが3要素以上、またはprey変化2回以上)', Object.keys(preyTargets).length >= 3 || preyLogs.length >= 2);
+pcheck('gainが動的(min<0.3 かつ max>0.5)', gMin < 0.3 && gMax > 0.5);
+pcheck('gainがGAIN_FLOORを下回らない', gFloorOk);
 
 console.log(fails === 0 ? 'ALL PASS' : fails + ' FAIL(S)');
 process.exit(fails === 0 ? 0 : 1);

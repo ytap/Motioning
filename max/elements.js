@@ -3,17 +3,22 @@
 // outlet 0: 10要素の活性度リスト (0..1) を UPDATE_MS 毎に出力 (multislider と s ed-acts へ)
 // outlet 1: ステータス ("rate <Hz>", "accelmode ...", "novelty ...", selftest ログ等)
 // outlet 2: 音の制御ストリーム — 音の中身は各要素ボイス (elem.<名前>~.maxpat) が決める:
-//   "weights w0..w9"      スポットライト重み (温度リーク込み、なめらか)
-//   "gain <0..1>"         master gain (表出しないと鳴らない)
-//   "spot <idx> <name>"   スポットライトの現在地
+//   "weights w0..w9"      獲物 (prey, 10要素単体上の点) へなめらかに追従する混合重み
+//   "gain <0..1>"         master gain (closeness に応じる。追跡モードでは完全無音にしない)
+//   "spot <idx> <name>"   獲物 (prey) の argmax = 現在の「らしき」要素
 //   "event arc-stop <鋭さ>" / "event onset <強さ>"  離散イベント (打撃系の音に使う)
+//
+// outlet 1: ステータス ("rate <Hz>", "accelmode ...", "novelty ... closeness ...",
+//   "prey <name> closeness <値>" (獲物の argmax が変わった時), "log ..." (logging 1 の間 200ms毎)、
+//   selftest ログ等
 //
 // メッセージ:
 //   selftest 1 / 0   … 合成データで全パイプラインを検証 (電話不要)
-//   reset            … 正規化 min/max とバッファをリセット
+//   reset            … 正規化 min/max とバッファをリセット (獲物 prey も初期位置へ)
 //   accelmode 1 / 0  … accel が重力込み(1)/重力抜き(0) を手動指定 (通常は自動判定)
-//   spotlight <n>    … スポットライトを要素 n (0-9) に固定。-1 で自動 (ドリフト)
+//   spotlight <n>    … スポットライトを要素 n (0-9) に固定 (one-hot)。-1 で自動 (追跡方策に戻る。prey は継続)
 //   loadmap          … dict "elementmap" (mapping.json) から到達可能性行列を再読込
+//   logging 1 / 0    … 200ms毎に outlet(1, "log", t_ms, act×10, prey×10, closeness) を出力 (既定 off)
 
 autowatch = 1;
 inlets = 1;
@@ -65,18 +70,17 @@ var RESPONSE = [1, 1, 1, 1, 1, 1, 0.7, 1, 0.7, 1];
 
 // ---- 音の制御 (音の中身は Max 側の要素ボイスが決める) ----
 var SPOT_TAU = 0.4;      // スポットライト重みのクロスフェード時定数 (秒)
-var GAIN_CURVE = 1.3;    // master gain のカーブ (活性度^この値)
+var GAIN_CURVE = 1.3;    // master gain のカーブ (closeness^この値)
+var GAIN_FLOOR = 0.08;   // 追跡モードの gain の下駄 (完全無音にはしない。勾配が消えると追えない)
 
-// ---- Phase 4 段階1: ドリフト方策 (追いかけず、逃げる) ----
-// ターゲット要素を表出したときだけ音が豊かになる。見つけて踊りきったら
-// (または見つからず時間切れになったら)、まだやっていない要素へ逃げる
-var SOLVE_ACT = 0.55;    // ターゲット活性がこれ以上 =「表出できている」
-var SOLVE_S = 3;         // 表出の累積がこの秒数で「解けた」(GIVEUP_S より短く保つ)
-var DWELL_S = 5;         // 解けてから奪うまでの滞在 (踊らせる時間)
-var GIVEUP_S = 10;       // 見つからなくても諦めて移る時間
+// ---- Phase 4 段階2: 追跡方策 (獲物 = 10要素単体上の連続な点を追いかける) ----
+// ダンサーの正規化した活性プロファイルから獲物 (prey) は逃げつつ、慣れていない
+// 要素の方へじわじわ引き寄せられる。近づかれるほど速く逃げる (待ち伏せ的)
+var PREY_SPEED = 0.25;   // 獲物の最大速度 (単体距離/秒)
+var FLEE_W = 1.0;        // 逃走方向の重み
+var GOAL_W = 0.5;        // 目標方向 (低慣れ要素) の重み
 var HABIT_TAU = 120;     // 慣れトレースの時定数 (秒)
-var RECENT_TAU = 300;    // 「最近ターゲットにした」ペナルティの時定数 (秒)
-var TEMP_MAX = 0.3;      // 迷子のときの温度 (ターゲット外がうっすら鳴る量)
+var RECENT_TAU = 300;    // 「獲物が最近滞在した要素」トレースの時定数 (秒)
 var NOVELTY_TAU = 300;   // 「普段の動き」の分布の時定数 (秒)
 
 // 到達可能性 (行=今のターゲット、列=次の候補)。近い動きほど 1 に近い。
@@ -134,14 +138,22 @@ for (var _i = 0; _i < 10; _i++) {
 	novMean.push(0);
 	novVar.push(0.01);
 }
-var spotManual = -1;     // -1 = 自動 (ドリフト方策)、0-9 = 固定
-var spotIdx = 9;         // 現在のスポットライト (初期: stillness)
+var spotManual = -1;     // -1 = 自動 (追跡方策)、0-9 = 固定
+var spotIdx = 9;         // 現在のスポットライト = prey の argmax (初期: stillness)
 var lastSpotOut = -1;
-var driftT = Date.now(); // 最後にドリフトした時刻
-var solvedAt = 0;        // 「解けた」時刻 (0 = 未解決)
-var solveAccum = 0;      // ターゲット表出の累積秒
 var lastNovOut = 0;
 var mapTried = false;
+
+var prey = [];           // 獲物: 10要素単体上の点 (Σ=1, 各成分>=0)
+var closeness = 0;       // 1 - 0.5*Σ|prey - aN| (ダンサーとの近さ、単体距離から)
+var loggingOn = false;   // logging 1/0 の状態
+var lastLogT = 0;
+
+function initPrey() {
+	prey = [];
+	for (var i = 0; i < 10; i++) prey.push(i === 9 ? 0.55 : 0.05);
+}
+initPrey();
 
 var updateTask = new Task(update, this);
 updateTask.interval = UPDATE_MS;
@@ -581,29 +593,29 @@ function autocorrPeak(buf) {
 	return clamp((best - 0.35) / 0.65, 0, 1);
 }
 
-// ---- Phase 4 段階1: ドリフト方策 ----
-// 追いかけない。ターゲットを表出し「解けて」踊りきったら (または時間切れで)
-// まだやっていない・今の動きから届く要素へ逃げる。
+// ---- Phase 4 段階2: 追跡方策 ----
+// 獲物 (prey) は 10要素単体上の連続な点。ダンサーの正規化活性プロファイル aN から
+// 逃げつつ (近づかれるほど速く)、慣れていない要素の方へじわじわ引き寄せられる。
+// 手動モード中は prey を更新せず、その場に留めておく (spotlight(-1) で追跡再開)。
 function updateSpot(act, now, sdt) {
 	var i;
 	// 慣れトレースと「普段の動き」の走行統計はモードに関わらず更新
 	var kH = sdt / HABIT_TAU;
-	var kR = sdt / RECENT_TAU;
 	var kN = sdt / NOVELTY_TAU;
 	var novSq = 0;
 	for (i = 0; i < 10; i++) {
 		habit[i] += (act[i] - habit[i]) * kH;
-		recentTgt[i] -= recentTgt[i] * kR;
 		var d = act[i] - novMean[i];
 		novMean[i] += d * kN;
 		novVar[i] += (d * d - novVar[i]) * kN;
 		var z = d / Math.sqrt(novVar[i] + 1e-4);
 		novSq += z * z;
 	}
-	// 新奇性 =「普段」からのずれ (1秒ごとにログ。評価と将来の学習の報酬に使う)
+	// 新奇性 =「普段」からのずれ、closeness = 獲物とダンサーの近さ (1秒ごとにログ)
 	if (now - lastNovOut >= 1000) {
 		lastNovOut = now;
-		outlet(1, "novelty", Math.round(Math.sqrt(novSq / 10) * 100) / 100);
+		outlet(1, "novelty", Math.round(Math.sqrt(novSq / 10) * 100) / 100,
+			"closeness", Math.round(closeness * 100) / 100);
 	}
 
 	if (spotManual >= 0) {
@@ -611,33 +623,57 @@ function updateSpot(act, now, sdt) {
 		return;
 	}
 
-	// 解け判定: ターゲット表出の累積 (出せていない時間はゆっくり戻す)
-	if (act[spotIdx] > SOLVE_ACT) solveAccum += sdt;
-	else solveAccum = Math.max(0, solveAccum - sdt * 0.5);
-	if (!solvedAt && solveAccum > SOLVE_S) {
-		solvedAt = now;
-		outlet(1, "drift", "solved", NAMES[spotIdx]);
-	}
-	var dwellDone = solvedAt && (now - solvedAt > DWELL_S * 1000);
-	var gaveUp = (now - driftT > GIVEUP_S * 1000);
-	if (dwellDone || gaveUp) pickNext(now, dwellDone ? "dwell-end" : "giveup");
-}
+	// ダンサーの位置 (正規化した活性プロファイル)
+	var actSum = 0;
+	for (i = 0; i < 10; i++) actSum += act[i];
+	var aN = [];
+	for (i = 0; i < 10; i++) aN.push(act[i] / (actSum + 1e-6));
 
-function pickNext(now, reason) {
-	// score = まだやっていない × 今の動きから届く × 最近選んでいない
-	var best = -1, bestScore = -1;
-	for (var i = 0; i < 10; i++) {
-		if (i === spotIdx) continue;
-		var s = (1 - habit[i]) * REACH[spotIdx][i] * (1 - 0.7 * recentTgt[i]);
-		if (s > bestScore) { bestScore = s; best = i; }
+	// closeness: 単体上の L1 距離から (0..1、1 = 完全一致)
+	var l1 = 0;
+	for (i = 0; i < 10; i++) l1 += Math.abs(prey[i] - aN[i]);
+	closeness = 1 - 0.5 * l1;
+
+	// 目標方向: 慣れの低い要素・最近滞在していない要素へ
+	var goalRaw = [], goalSum = 0;
+	for (i = 0; i < 10; i++) {
+		goalRaw.push((1 - habit[i]) * (1 - 0.7 * recentTgt[i]));
+		goalSum += goalRaw[i];
 	}
-	outlet(1, "drift", reason, NAMES[spotIdx], "->", NAMES[best]);
-	spotIdx = best;
-	recentTgt[best] = 1;
-	driftT = now;
-	solvedAt = 0;
-	solveAccum = 0;
-	announceSpot();
+	var urgency = closeness * closeness; // 近づかれるほど強く逃げる (遠いときはほぼ待ち伏せ)
+	var v = [];
+	for (i = 0; i < 10; i++) {
+		var fleeDir = prey[i] - aN[i];
+		var goalDir = (goalSum > 1e-9 ? goalRaw[i] / goalSum : 0.1) - prey[i];
+		v.push(FLEE_W * urgency * fleeDir + GOAL_W * goalDir);
+	}
+	var preySum = 0;
+	for (i = 0; i < 10; i++) {
+		prey[i] = Math.max(0, prey[i] + v[i] * sdt * PREY_SPEED);
+		preySum += prey[i];
+	}
+	for (i = 0; i < 10; i++) prey[i] = preySum > 1e-9 ? prey[i] / preySum : (i === 9 ? 1 : 0);
+
+	// 「獲物が最近滞在した要素」トレースに転用 (旧: 再選ペナルティ)
+	var kR = sdt / RECENT_TAU;
+	for (i = 0; i < 10; i++) recentTgt[i] += (prey[i] - recentTgt[i]) * kR;
+
+	var best = 0, bestV = prey[0];
+	for (i = 1; i < 10; i++) if (prey[i] > bestV) { bestV = prey[i]; best = i; }
+	if (best !== spotIdx) {
+		spotIdx = best;
+		announceSpot();
+		outlet(1, "prey", NAMES[spotIdx], "closeness", Math.round(closeness * 100) / 100);
+	}
+
+	if (loggingOn && now - lastLogT >= 200) {
+		lastLogT = now;
+		var logArgs = [1, "log", now];
+		for (i = 0; i < 10; i++) logArgs.push(Math.round(act[i] * 1000) / 1000);
+		for (i = 0; i < 10; i++) logArgs.push(Math.round(prey[i] * 1000) / 1000);
+		logArgs.push(Math.round(closeness * 1000) / 1000);
+		outlet.apply(this, logArgs);
+	}
 }
 
 function announceSpot() {
@@ -647,35 +683,42 @@ function announceSpot() {
 	}
 }
 
-// 重み w = ターゲット中心 + 温度リーク: 迷子 (ターゲット活性が低い) のときは
-// REACH に応じて周辺の要素ボイスもうっすら混ざり、手がかりを残す。
-// master gain ∝ Σw·a — 表出しないと鳴らない (作品の心臓部)
+// 重み w: 自動モードでは prey へなめらかに追従、手動モードでは spotIdx への one-hot。
+// master gain: 自動モードは closeness に基づき GAIN_FLOOR の下駄つき (追えなくならない
+// よう完全無音にしない)、手動モードは act[spot]^GAIN_CURVE (音作り用、下駄なし)
 function emitControl(act, sdt) {
 	var k = 1 - Math.exp(-sdt / SPOT_TAU);
 	var i;
-	var temp = spotManual >= 0 ? 0
-		: TEMP_MAX * (1 - clamp(act[spotIdx] / SOLVE_ACT, 0, 1));
-	var wT = [], wSum = 0;
-	for (i = 0; i < 10; i++) {
-		wT.push(i === spotIdx ? 1 : temp * REACH[spotIdx][i]);
-		wSum += wT[i];
-	}
-	var aSpot = 0;
 	var msg = ["weights"];
-	for (i = 0; i < 10; i++) {
-		spotW[i] += (wT[i] / wSum - spotW[i]) * k;
-		aSpot += spotW[i] * act[i];
-		msg.push(Math.round(spotW[i] * 1000) / 1000);
+	if (spotManual >= 0) {
+		for (i = 0; i < 10; i++) {
+			var target = (i === spotIdx) ? 1 : 0;
+			spotW[i] += (target - spotW[i]) * k;
+			msg.push(Math.round(spotW[i] * 1000) / 1000);
+		}
+		outlet(2, msg);
+		outlet(2, "gain", Math.pow(clamp(act[spotIdx], 0, 1), GAIN_CURVE));
+	} else {
+		for (i = 0; i < 10; i++) {
+			spotW[i] += (prey[i] - spotW[i]) * k;
+			msg.push(Math.round(spotW[i] * 1000) / 1000);
+		}
+		outlet(2, msg);
+		var g = GAIN_FLOOR + (1 - GAIN_FLOOR) * Math.pow(clamp(closeness, 0, 1), GAIN_CURVE);
+		outlet(2, "gain", g);
 	}
-	outlet(2, msg);
-	outlet(2, "gain", Math.pow(clamp(aSpot, 0, 1), GAIN_CURVE));
 }
 
 function spotlight(v) {
 	v = Math.floor(v);
 	spotManual = (v >= 0 && v < 10) ? v : -1;
-	if (spotManual < 0) { driftT = Date.now(); solvedAt = 0; solveAccum = 0; }
-	outlet(1, "spotmode", spotManual < 0 ? "auto(drift)" : NAMES[spotManual]);
+	outlet(1, "spotmode", spotManual < 0 ? "auto(pursuit)" : NAMES[spotManual]);
+}
+
+function logging(v) {
+	loggingOn = v ? true : false;
+	lastLogT = 0;
+	outlet(1, "logging", loggingOn ? "on" : "off");
 }
 
 // dict "elementmap" (mapping.json) から M と base を読む。無ければ既定値。
@@ -759,9 +802,8 @@ function reset() {
 		novMean[i] = 0;
 		novVar[i] = 0.01;
 	}
-	driftT = Date.now();
-	solvedAt = 0;
-	solveAccum = 0;
+	initPrey();
+	closeness = 0;
 	outlet(1, "reset", "done");
 }
 
