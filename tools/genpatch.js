@@ -160,9 +160,9 @@ for (var vi = 0; vi < 10; vi++) {
 	var upA = box(V, { text: 'unpack 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.', ins: 1, outs: 10, x: 20, y: 100, w: 230 });
 	var rW = box(V, { text: 'r ed-weights', ins: 0, outs: 1, x: 280, y: 70, w: 85 });
 	var upW = box(V, { text: 'unpack 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.', ins: 1, outs: 10, x: 280, y: 100, w: 230 });
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 130, w: 320, text: '↓ 駆動量 = w × (0.3 + 0.7a): 獲物の声は薄く常時、表出で開く' });
-	var aOpen = box(V, { text: '* 0.7', ins: 2, outs: 1, x: 20, y: 155, w: 55 });
-	var aFloor = box(V, { text: '+ 0.3', ins: 2, outs: 1, x: 20, y: 178, w: 55 });
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 130, w: 320, text: '↓ 駆動量 = w × (0.15 + 0.85a): 獲物の声はより薄く、表出で開く差を拡大' });
+	var aOpen = box(V, { text: '* 0.85', ins: 2, outs: 1, x: 20, y: 155, w: 55 });
+	var aFloor = box(V, { text: '+ 0.15', ins: 2, outs: 1, x: 20, y: 178, w: 55 });
 	var mul = box(V, { text: '* 0.', ins: 2, outs: 1, x: 20, y: 201, w: 50 });
 	var pk = box(V, { text: 'pack 0. 50', ins: 2, outs: 1, x: 20, y: 231, w: 70 });
 	var ln = box(V, { text: 'line~', ins: 1, outs: 2, x: 20, y: 261, w: 45, types: ['signal', 'bang'] });
@@ -310,7 +310,7 @@ function buildGranularFx(outDir) {
 
 	// wet ツマミ: flonum → expr 1.-$f1 (ドライ係数) / flonum直 (ウェット係数)
 	box(G, { maxclass: 'comment', ins: 1, outs: 0, x: 700, y: 50, w: 90, text: 'wet' });
-	var wlm = box(G, { text: 'loadmess 0.35', ins: 1, outs: 1, x: 700, y: 70, w: 90 });
+	var wlm = box(G, { text: 'loadmess 0.15', ins: 1, outs: 1, x: 700, y: 70, w: 90 });
 	var wnb = box(G, { maxclass: 'flonum', ins: 1, outs: 2, x: 700, y: 100, w: 70, types: ['', 'bang'], extra: { parameter_enable: 0 } });
 	conn(G, wlm, 0, wnb, 0);
 	var dryExpr = box(G, { text: 'expr 1.-$f1', ins: 1, outs: 1, x: 700, y: 130, w: 90 });

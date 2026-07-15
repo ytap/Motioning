@@ -47,6 +47,7 @@ js は音を決めず、制御ストリームだけを送る。各要素の音�
 - 獲物の argmax が変わると `prey <name> closeness <値>` が print される
 - `logging 1` で 200ms 毎に act/prey/closeness を print (将来の ML 学習データ収集用)
 - 手動 (`spotlight 0-9`) は従来通り one-hot + gain=活性 (音作り用)
+- 重みは `SHARP_P` で尖鋭化して出力 (`sharpen <1-6>` で実機調整)
 
 ## チューニングと確認
 

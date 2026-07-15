@@ -136,6 +136,7 @@ spotlight(-1);
 var pursuitLogStart = logs.length;
 var gains2 = [];
 var wSumOk = true, wNegOk = true;
+var wMaxes = [];
 var mLins = [], mRots = [], mSpeeds = [];
 for (var d = 0; d < Math.floor(5000 * NSEG * 2 / 16); d++) {
 	simNow += 16;
@@ -147,16 +148,18 @@ for (var d = 0; d < Math.floor(5000 * NSEG * 2 / 16); d++) {
 		if (typeof lastCtl.mLin === 'number') mLins.push(lastCtl.mLin);
 		if (typeof lastCtl.mRot === 'number') mRots.push(lastCtl.mRot);
 		if (typeof lastCtl.mSpeed === 'number') mSpeeds.push(lastCtl.mSpeed);
-		var wsum = 0, neg = false;
+		var wsum = 0, neg = false, wmax = 0;
 		for (var wk = 0; wk < 10; wk++) {
 			var wv = lastCtl['w' + wk];
 			if (typeof wv === 'number') {
 				wsum += wv;
 				if (wv < -1e-6) neg = true;
+				if (wv > wmax) wmax = wv;
 			}
 		}
 		if (Math.abs(wsum - 1) > 0.05) wSumOk = false;
 		if (neg) wNegOk = false;
+		wMaxes.push(wmax);
 	}
 }
 var preyLogs = [], preyTargets = {};
@@ -175,7 +178,13 @@ for (var g2 = 0; g2 < gains2.length; g2++) {
 	if (gains2[g2] < GAIN_FLOOR - 1e-6) gFloorOk = false;
 }
 console.log('gain min/max (auto/pursuit):', gMin.toFixed(3), gMax.toFixed(3));
+var wMaxMean = wMaxes.length ? (wMaxes.reduce(function (a, b) { return a + b; }, 0) / wMaxes.length) : 0;
+console.log('mean max-w (auto/pursuit):', wMaxMean.toFixed(3));
 pcheck('weights が単体上(Σw≈1, 負値なし)', wSumOk && wNegOk);
+// 閾値 0.35: harness の合成シナリオ (約110秒) では habit (τ=120s) に要素間の差が
+// まだつかず goal のコントラストが小さい。実機の長時間運用では habit に差がつき
+// さらに尖るため、ここでは 0.35 を下限とする
+pcheck('重みが尖っている(mean max-w > 0.35)', wMaxMean > 0.35);
 pcheck('獲物が動く(argmaxが3要素以上、またはprey変化2回以上)', Object.keys(preyTargets).length >= 3 || preyLogs.length >= 2);
 pcheck('gainが動的(min<0.3 かつ max>0.5)', gMin < 0.3 && gMax > 0.5);
 pcheck('gainがGAIN_FLOORを下回らない', gFloorOk);

@@ -1072,7 +1072,7 @@
 						90,
 						22
 					],
-					"text": "loadmess 0.35",
+					"text": "loadmess 0.15",
 					"outlettype": [
 						""
 					]

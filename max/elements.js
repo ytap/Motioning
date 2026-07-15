@@ -21,6 +21,7 @@
 //   spotlight <n>    … スポットライトを要素 n (0-9) に固定 (one-hot)。-1 で自動 (追跡方策に戻る。prey は継続)
 //   loadmap          … dict "elementmap" (mapping.json) から到達可能性行列を再読込
 //   logging 1 / 0    … 200ms毎に outlet(1, "log", t_ms, act×10, prey×10, closeness) を出力 (既定 off)
+//   sharpen <v>      … SHARP_P を <1-6> に変更 (実機で調整するため。outlet(1,"sharpen",値) で確認)
 
 autowatch = 1;
 inlets = 1;
@@ -74,6 +75,7 @@ var RESPONSE = [1, 1, 1, 1, 1, 1, 0.7, 1, 0.7, 1];
 var SPOT_TAU = 0.4;      // スポットライト重みのクロスフェード時定数 (秒)
 var GAIN_CURVE = 1.3;    // master gain のカーブ (closeness^この値)
 var GAIN_FLOOR = 0.08;   // 追跡モードの gain の下駄 (完全無音にはしない。勾配が消えると追えない)
+var SHARP_P = 2.5;       // 出力重みの尖鋭化指数。1=そのまま、大きいほど上位要素が支配。連続性は保たれる
 
 // ---- 距離感: 放置すると音が遠ざかる (こもる・ドライ減・残響増)、動くと戻る ----
 var IDLE_ONSET = 3;      // 秒。この間は放置しても去らない
@@ -86,6 +88,7 @@ var RETURN_TAU = 1.2;    // 秒。戻りの時定数
 var PREY_SPEED = 0.25;   // 獲物の最大速度 (単体距離/秒)
 var FLEE_W = 1.0;        // 逃走方向の重み
 var GOAL_W = 0.5;        // 目標方向 (低慣れ要素) の重み
+var GOAL_SHARP = 3;      // 目標ベクトルの尖鋭化指数。目標を低慣れの「平均=中央」でなく「最も低慣れな要素のコーナー」に向ける
 var HABIT_TAU = 120;     // 慣れトレースの時定数 (秒)
 var RECENT_TAU = 300;    // 「獲物が最近滞在した要素」トレースの時定数 (秒)
 var NOVELTY_TAU = 300;   // 「普段の動き」の分布の時定数 (秒)
@@ -153,6 +156,10 @@ var mapTried = false;
 
 var prey = [];           // 獲物: 10要素単体上の点 (Σ=1, 各成分>=0)
 var closeness = 0;       // 1 - 0.5*Σ|prey - aN| (ダンサーとの近さ、単体距離から)
+// closeness の走行 min/max (自己校正)。獲物がコーナーに寄ると closeness の絶対値の
+// 届く範囲が下がるため、gain は相対値 (closenessN) から作る
+var cNorm = { min: null, max: null };
+var closenessN = 0;      // closeness の走行正規化値 (0..1)
 var loggingOn = false;   // logging 1/0 の状態
 var lastLogT = 0;
 
@@ -651,7 +658,8 @@ function updateSpot(act, now, sdt) {
 	if (now - lastNovOut >= 1000) {
 		lastNovOut = now;
 		outlet(1, "novelty", Math.round(Math.sqrt(novSq / 10) * 100) / 100,
-			"closeness", Math.round(closeness * 100) / 100);
+			"closeness", Math.round(closeness * 100) / 100,
+			Math.round(closenessN * 100) / 100);
 	}
 
 	if (spotManual >= 0) {
@@ -669,11 +677,22 @@ function updateSpot(act, now, sdt) {
 	var l1 = 0;
 	for (i = 0; i < 10; i++) l1 += Math.abs(prey[i] - aN[i]);
 	closeness = 1 - 0.5 * l1;
+	closenessN = normScalar(cNorm, closeness); // gain 用の自己校正 (走行 min/max)
 
-	// 目標方向: 慣れの低い要素・最近滞在していない要素へ
+	// 目標方向: 慣れの低い要素・最近滞在していない要素へ。
+	// min-max 正規化してから GOAL_SHARP で尖鋭化: 慣れの絶対差が小さい序盤でも、
+	// 相対的に最も低慣れなコーナーへ確実に向かう (「低慣れの平均=中央」を指さない)
+	var goalPre = [], gMinV = Infinity, gMaxV = -Infinity;
+	for (i = 0; i < 10; i++) {
+		var gr = (1 - habit[i]) * (1 - 0.7 * recentTgt[i]);
+		goalPre.push(gr);
+		if (gr < gMinV) gMinV = gr;
+		if (gr > gMaxV) gMaxV = gr;
+	}
 	var goalRaw = [], goalSum = 0;
 	for (i = 0; i < 10; i++) {
-		goalRaw.push((1 - habit[i]) * (1 - 0.7 * recentTgt[i]));
+		var gN = (goalPre[i] - gMinV) / (gMaxV - gMinV + 1e-6);
+		goalRaw.push(Math.pow(gN, GOAL_SHARP));
 		goalSum += goalRaw[i];
 	}
 	var urgency = closeness * closeness; // 近づかれるほど強く逃げる (遠いときはほぼ待ち伏せ)
@@ -725,24 +744,44 @@ function announceSpot() {
 function emitControl(act, sdt) {
 	var k = 1 - Math.exp(-sdt / SPOT_TAU);
 	var i;
-	var msg = ["weights"];
 	if (spotManual >= 0) {
 		for (i = 0; i < 10; i++) {
 			var target = (i === spotIdx) ? 1 : 0;
 			spotW[i] += (target - spotW[i]) * k;
-			msg.push(Math.round(spotW[i] * 1000) / 1000);
 		}
-		outlet(2, msg);
+		outlet(2, sharpenedWeightsMsg());
 		outlet(2, "gain", Math.pow(clamp(act[spotIdx], 0, 1), GAIN_CURVE));
 	} else {
 		for (i = 0; i < 10; i++) {
 			spotW[i] += (prey[i] - spotW[i]) * k;
-			msg.push(Math.round(spotW[i] * 1000) / 1000);
 		}
-		outlet(2, msg);
-		var g = GAIN_FLOOR + (1 - GAIN_FLOOR) * Math.pow(clamp(closeness, 0, 1), GAIN_CURVE);
+		outlet(2, sharpenedWeightsMsg());
+		// closenessN (走行 min/max で自己校正した相対近さ) から gain を作る —
+		// 獲物がコーナーに寄って closeness の絶対レンジが下がっても表現力を保つ
+		var g = GAIN_FLOOR + (1 - GAIN_FLOOR) * Math.pow(clamp(closenessN, 0, 1), GAIN_CURVE);
 		outlet(2, "gain", g);
 	}
+}
+
+// spotW (平滑後の内部状態) はそのまま、出力する重みだけを SHARP_P で尖鋭化する。
+// wOut_i = spotW_i^SHARP_P / Σ(spotW_j^SHARP_P)。手動モード (one-hot) は 1^p=1 で実質不変
+function sharpenedWeightsMsg() {
+	var i, p = [], sum = 0;
+	for (i = 0; i < 10; i++) {
+		var v = Math.pow(Math.max(spotW[i], 0), SHARP_P);
+		p.push(v);
+		sum += v;
+	}
+	var msg = ["weights"];
+	for (i = 0; i < 10; i++) {
+		msg.push(Math.round((sum > 0 ? p[i] / sum : 0) * 1000) / 1000);
+	}
+	return msg;
+}
+
+function sharpen(v) {
+	SHARP_P = clamp(v, 1, 6);
+	outlet(1, "sharpen", SHARP_P);
 }
 
 function spotlight(v) {
@@ -801,8 +840,8 @@ function detectOnset(now) {
 }
 
 // ---- 走行正規化 (インスタレーション形式: 減衰つき min/max) ----
-function normalize(idx, v) {
-	var m = norm[idx];
+// スカラー版: m = {min, max} を更新しつつ 0..1 に正規化 (closeness の自己校正にも使う)
+function normScalar(m, v) {
 	if (m.min === null) { m.min = v; m.max = v; return 0; }
 	m.min += (m.max - m.min) * NORM_DECAY;
 	m.max -= (m.max - m.min) * NORM_DECAY;
@@ -810,6 +849,9 @@ function normalize(idx, v) {
 	if (v > m.max) m.max = v;
 	var range = m.max - m.min;
 	return range > 1e-9 ? clamp((v - m.min) / range, 0, 1) : 0;
+}
+function normalize(idx, v) {
+	return normScalar(norm[idx], v);
 }
 
 // ---- ユーティリティ ----
@@ -840,6 +882,8 @@ function reset() {
 	}
 	initPrey();
 	closeness = 0;
+	closenessN = 0;
+	cNorm.min = null; cNorm.max = null;
 	outlet(1, "reset", "done");
 }
 
