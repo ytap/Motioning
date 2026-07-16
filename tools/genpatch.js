@@ -57,16 +57,16 @@ function writePatch(P, file) {
 //       既定音は運動プロファイル準拠 (sus=持続 / am=反復 / imp=打撃)。
 //       ツマミ (number box) で音高・明るさ・レゾ・AM速度・音量を調整できる
 var VOICE = [
-	{ air: { chord: [392, 494, 587], q: 30, level: 0.4 }, nyoGlide: { f0: 392, level: 0.5 } }, // balance
-	{ nyoGlide: { f0: 294, level: 0.6 }, air: { chord: [294, 441], q: 20, level: 0.3 } }, // rotation
-	{ air: { chord: [523, 784], q: 40, level: 0.5 }, swell: { ev: 0 }, nyoGlide: { f0: 523, level: 0.25 } }, // articulation (arc-stop)
-	{ air: { chord: [1319, 1976], q: 15, level: 0.5 }, swell: { ev: 1 } }, // acceleration (onset)
-	{ air: { chord: [220, 277, 330], q: 25, level: 0.6 }, nyoGlide: { f0: 220, level: 0.3 } }, // deceleration
-	{ air: { chord: [65, 98, 131], q: 35, level: 1.0 } }, // gravity
-	{ air: { chord: [1568, 2093, 2637], q: 25, level: 0.8 } }, // vibration
-	{ air: { chord: [330, 392], q: 60, level: 0.8 } }, // rhythm
-	{ air: { chord: [466, 699], q: 120, level: 0.7 } }, // tension
-	{ air: { chord: [262, 330, 392], q: 18, level: 0.7 } } // stillness
+	{ air: { chord: [392, 494, 587], q: 30, level: 0.4, style: 'balance' } }, // balance
+	{ air: { chord: [294, 441], q: 20, level: 0.5, style: 'rotation' } }, // rotation
+	{ air: { chord: [523, 784], q: 40, level: 0.5, style: 'articulation' }, swell: { ev: 0, shape: 'joint' } }, // articulation (arc-stop)
+	{ air: { chord: [1319, 1976], q: 15, level: 0.5, style: 'acceleration' }, swell: { ev: 1, shape: 'onset' } }, // acceleration (onset)
+	{ air: { chord: [220, 277, 330], q: 25, level: 0.6, style: 'deceleration' } }, // deceleration
+	{ air: { chord: [65, 98, 131], q: 35, level: 1.0, style: 'gravity' } }, // gravity
+	{ air: { chord: [1568, 2093, 2637], q: 25, level: 0.8, style: 'vibration' } }, // vibration
+	{ air: { chord: [330, 392], q: 60, level: 0.8, style: 'rhythm' } }, // rhythm
+	{ air: { chord: [466, 699], q: 120, level: 0.7, style: 'tension' } }, // tension
+	{ air: { chord: [262, 330, 392], q: 18, level: 0.7, style: 'stillness' } } // stillness
 ];
 function knob(V, x, y, label, val, dstId, dstIn) {
 	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x, y: y, w: 90, text: label });
@@ -76,22 +76,43 @@ function knob(V, x, y, label, val, dstId, dstIn) {
 	conn(V, nb, 0, dstId, dstIn);
 	return nb;
 }
-// 空気 (noise~ → ガスト変調 → reson~ 並列コード (動きでスイープ) → +~ 合流) エンジンを生成
+// 空気 (noise~ → 要素固有加工 → reson~ 並列コード → +~ 合流) エンジンを生成。
+// 全要素共通の上昇スイープは置かない。同じ動きが毎回同じ「ひゅるる」になるのを防ぐ。
 // swellId (line~ signal, optional): イベント由来の4秒膨らみを駆動段に合流させる
-function buildAir(V, cfg, x, y, driveId, mulId, swellId) {
+function buildAir(V, cfg, x, y, driveId, actId, actOutlet, swellId, motionId) {
 	var noise = box(V, { text: 'noise~', ins: 1, outs: 1, x: x, y: y, w: 60, types: sig(1) });
-	// 動き→レゾナンス周波数スイープ: 駆動量float → scale 0. 1. 1. 1.8 → 各コード音に乗算
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x + 340, y: y - 20, w: 260, text: '動きでレゾナンスが上にスイープ' });
-	var sweepSc = box(V, { text: 'scale 0. 1. 1. 1.8', ins: 6, outs: 1, x: x + 340, y: y, w: 130, types: [''] });
-	if (mulId) conn(V, mulId, 0, sweepSc, 0);
+	var freqCtl = null;
+	if (cfg.style === 'acceleration') {
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x + 340, y: y - 20, w: 300, text: '加速: 活性で高域が鋭く開く (この要素だけ)' });
+		freqCtl = box(V, { text: 'scale 0. 1. 0.75 2.2', ins: 6, outs: 1, x: x + 340, y: y, w: 140, types: [''] });
+		conn(V, actId, actOutlet, freqCtl, 0);
+	} else if (cfg.style === 'deceleration' || cfg.style === 'gravity') {
+		var isGravity = cfg.style === 'gravity';
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x + 340, y: y - 20, w: 300, text: isGravity ? '重力: 活性で風が低く重く沈む' : '減速: 活性に沿って風が下へ沈む' });
+		freqCtl = box(V, { text: isGravity ? 'scale 0. 1. 1.05 0.58' : 'scale 0. 1. 1.25 0.62', ins: 6, outs: 1, x: x + 340, y: y, w: 145, types: [''] });
+		conn(V, actId, actOutlet, freqCtl, 0);
+	}
 	var resons = [];
 	for (var ri = 0; ri < cfg.chord.length; ri++) {
 		var rz = box(V, { text: 'reson~ 2. ' + cfg.chord[ri] + ' ' + cfg.q, ins: 4, outs: 1, x: x + ri * 140, y: y + 96, w: 130, types: sig(1) });
 		conn(V, noise, 0, rz, 0);
-		var fmul = box(V, { text: '* ' + cfg.chord[ri] + '.', ins: 2, outs: 1, x: x + 340 + ri * 100, y: y + 32, w: 70 });
-		conn(V, sweepSc, 0, fmul, 0);
-		conn(V, fmul, 0, rz, 2);
+		if (freqCtl) {
+			var fmul = box(V, { text: '* ' + cfg.chord[ri] + '.', ins: 2, outs: 1, x: x + 340 + ri * 100, y: y + 32, w: 80 });
+			conn(V, freqCtl, 0, fmul, 0);
+			conn(V, fmul, 0, rz, 2);
+		}
 		resons.push(rz);
+	}
+	if (cfg.style === 'stillness') {
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x + 340, y: y - 20, w: 300, text: '静止: 静まるほど細く安定した共鳴になる' });
+		var stillQ = box(V, { text: 'scale 0. 1. 12. 140.', ins: 6, outs: 1, x: x + 340, y: y, w: 140, types: [''] });
+		conn(V, actId, actOutlet, stillQ, 0);
+		for (var sq = 0; sq < resons.length; sq++) conn(V, stillQ, 0, resons[sq], 3);
+	} else if (cfg.style === 'tension') {
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x + 340, y: y - 20, w: 300, text: '張力: 活性で共鳴が締まり、圧が集中する' });
+		var tensionQ = box(V, { text: 'scale 0. 1. 28. 190.', ins: 6, outs: 1, x: x + 340, y: y, w: 145, types: [''] });
+		conn(V, actId, actOutlet, tensionQ, 0);
+		for (var tq = 0; tq < resons.length; tq++) conn(V, tensionQ, 0, resons[tq], 3);
 	}
 	var sum = resons[0];
 	for (var rj = 1; rj < resons.length; rj++) {
@@ -112,26 +133,75 @@ function buildAir(V, cfg, x, y, driveId, mulId, swellId) {
 	} else {
 		conn(V, driveId, 0, drv, 1);
 	}
-	var lvl = box(V, { text: '*~ ' + cfg.level, ins: 2, outs: 1, x: x, y: y + 224, w: 60, types: sig(1) });
-	conn(V, drv, 0, lvl, 0);
+	var shaped = drv;
+	if (cfg.style === 'rotation' || cfg.style === 'vibration' || cfg.style === 'balance' || cfg.style === 'rhythm') {
+		var tx = x + 340, ty = y + 180;
+		var isRot = cfg.style === 'rotation';
+		var isVib = cfg.style === 'vibration';
+		var isBalance = cfg.style === 'balance';
+		var label = isRot ? '回転: rotで風が周期的に回る' : isVib ? '振動: 活性で風が高速に粗く刻まれる' : isBalance ? '傾き: 風がゆっくり均衡を揺れ動く' : 'リズム: 活性で風の拍動が速くなる';
+		var rateText = isRot ? 'scale 0. 1. 1.5 9.' : isVib ? 'scale 0. 1. 12. 55.' : isBalance ? 'scale 0. 1. 0.12 0.7' : 'scale 0. 1. 1. 3.2';
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: tx, y: ty - 20, w: 300, text: label });
+		var rateSc = box(V, { text: rateText, ins: 6, outs: 1, x: tx, y: ty, w: 145, types: [''] });
+		conn(V, isRot ? motionId : actId, isRot ? 1 : actOutlet, rateSc, 0);
+		var ratePk = box(V, { text: 'pack 0. 80', ins: 2, outs: 1, x: tx, y: ty + 30, w: 70 });
+		conn(V, rateSc, 0, ratePk, 0);
+		var rateLn = box(V, { text: 'line~', ins: 1, outs: 2, x: tx, y: ty + 60, w: 45, types: ['signal', 'bang'] });
+		conn(V, ratePk, 0, rateLn, 0);
+		var cyc = box(V, { text: 'cycle~', ins: 2, outs: 1, x: tx, y: ty + 90, w: 60, types: sig(1) });
+		conn(V, rateLn, 0, cyc, 0);
+		var half = box(V, { text: '*~ 0.5', ins: 2, outs: 1, x: tx, y: ty + 120, w: 55, types: sig(1) });
+		conn(V, cyc, 0, half, 0);
+		var uni = box(V, { text: '+~ 0.5', ins: 2, outs: 1, x: tx, y: ty + 150, w: 55, types: sig(1) });
+		conn(V, half, 0, uni, 0);
+		var amFloor = box(V, { text: isRot ? '*~ 0.75' : isVib ? '*~ 0.9' : isBalance ? '*~ 0.35' : '*~ 0.85', ins: 2, outs: 1, x: tx, y: ty + 180, w: 65, types: sig(1) });
+		conn(V, uni, 0, amFloor, 0);
+		var amBias = box(V, { text: isRot ? '+~ 0.25' : isVib ? '+~ 0.1' : isBalance ? '+~ 0.65' : '+~ 0.15', ins: 2, outs: 1, x: tx, y: ty + 210, w: 65, types: sig(1) });
+		conn(V, amFloor, 0, amBias, 0);
+		shaped = box(V, { text: '*~', ins: 2, outs: 1, x: x, y: y + 224, w: 50, types: sig(1) });
+		conn(V, drv, 0, shaped, 0);
+		conn(V, amBias, 0, shaped, 1);
+	}
+	var lvl = box(V, { text: '*~ ' + cfg.level, ins: 2, outs: 1, x: x, y: y + 256, w: 60, types: sig(1) });
+	conn(V, shaped, 0, lvl, 0);
 	// ツマミ: 空気音量 (lvl 右インレット), レゾQ (各 reson~ inlet 3)
-	var volNb = knob(V, x, y + 264, '空気音量', cfg.level, lvl, 1);
-	var qNb = knob(V, x + 130, y + 264, 'レゾQ', cfg.q, resons[0], 3);
-	for (var rk = 1; rk < resons.length; rk++) conn(V, qNb, 0, resons[rk], 3);
+	var volNb = knob(V, x, y + 296, '空気音量', cfg.level, lvl, 1);
+	if (cfg.style !== 'stillness' && cfg.style !== 'tension') {
+		var qNb = knob(V, x + 130, y + 296, 'レゾQ', cfg.q, resons[0], 3);
+		for (var rk = 1; rk < resons.length; rk++) conn(V, qNb, 0, resons[rk], 3);
+	}
 	return lvl;
 }
 // にょろん: 連続グライド (駆動量float → scale → pack → line~ → cycle~ → *~駆動量line~ → *~レベル)
-function buildNyoGlide(V, cfg, x, y, mulId, driveId) {
-	var lo = Math.round(cfg.f0 * 0.7);
-	var hi = Math.round(cfg.f0 * 1.4);
+function buildNyoGlide(V, cfg, x, y, mulId, driveId, motionId) {
+	var lo = Math.round(cfg.f0 * 0.5);
+	var hi = Math.round(cfg.f0 * 2.0);
 	var sc = box(V, { text: 'scale 0. 1. ' + lo + '. ' + hi + '.', ins: 6, outs: 1, x: x, y: y, w: 150, types: [''] });
 	conn(V, mulId, 0, sc, 0);
 	var pk = box(V, { text: 'pack 0. 200', ins: 2, outs: 1, x: x, y: y + 32, w: 70 });
 	conn(V, sc, 0, pk, 0);
 	var ln = box(V, { text: 'line~', ins: 1, outs: 2, x: x, y: y + 64, w: 45, types: ['signal', 'bang'] });
 	conn(V, pk, 0, ln, 0);
+	// rot → ビブラート (回転でピッチが震える): vibDepth(Hz) = rot→scale 0..25 → *(ツマミ,初期1.) → pack → line~
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x + 200, y: y - 20, w: 220, text: '回転でピッチが震える' });
+	var vibSc = box(V, { text: 'scale 0. 1. 0. 25.', ins: 6, outs: 1, x: x + 200, y: y, w: 130, types: [''] });
+	if (motionId) conn(V, motionId, 1, vibSc, 0);
+	var vibMul = box(V, { text: '* 1.', ins: 2, outs: 1, x: x + 200, y: y + 32, w: 50 });
+	conn(V, vibSc, 0, vibMul, 0);
+	knob(V, x + 260, y + 64, 'ビブラート量', 1, vibMul, 1);
+	var vibPk = box(V, { text: 'pack 0. 100', ins: 2, outs: 1, x: x + 200, y: y + 190, w: 70 });
+	conn(V, vibMul, 0, vibPk, 0);
+	var vibLn = box(V, { text: 'line~', ins: 1, outs: 2, x: x + 200, y: y + 222, w: 45, types: ['signal', 'bang'] });
+	conn(V, vibPk, 0, vibLn, 0);
+	var vibCyc = box(V, { text: 'cycle~ 5.5', ins: 2, outs: 1, x: x + 200, y: y + 254, w: 70, types: sig(1) });
+	var vibScaled = box(V, { text: '*~', ins: 2, outs: 1, x: x + 200, y: y + 286, w: 50, types: sig(1) });
+	conn(V, vibCyc, 0, vibScaled, 0);
+	conn(V, vibLn, 0, vibScaled, 1);
+	var freqSum = box(V, { text: '+~', ins: 2, outs: 1, x: x, y: y + 96 - 16, w: 45, types: sig(1) });
+	conn(V, ln, 0, freqSum, 0);
+	conn(V, vibScaled, 0, freqSum, 1);
 	var cyc = box(V, { text: 'cycle~', ins: 2, outs: 1, x: x, y: y + 96, w: 60, types: sig(1) });
-	conn(V, ln, 0, cyc, 0);
+	conn(V, freqSum, 0, cyc, 0);
 	var drv = box(V, { text: '*~', ins: 2, outs: 1, x: x, y: y + 128, w: 50, types: sig(1) });
 	conn(V, cyc, 0, drv, 0);
 	conn(V, driveId, 0, drv, 1);
@@ -140,12 +210,13 @@ function buildNyoGlide(V, cfg, x, y, mulId, driveId) {
 	var volNb = knob(V, x, y + 200, 'にょろん音量', cfg.level, lvl, 1);
 	return { out: lvl, volNb: volNb };
 }
-// イベント→4秒の膨らみ (attack 0.8s / hold 0.5s / release 3.5s) — AIRの駆動段に合流するline~を返す
+// 離散イベントの風エンベロープ。関節は短い切れ目、加速は鋭く開いて余韻を残す。
 function buildSwell(V, cfg, x, y, rtId) {
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x, y: y - 20, w: 320, text: 'イベント→4秒の膨らみ (attack 0.8s / hold 0.5s / release 3.5s)' });
+	var joint = cfg.shape === 'joint';
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: x, y: y - 20, w: 360, text: joint ? '関節: 円弧完結→短く折れる風 (30ms / 650ms)' : '加速: onset→鋭く開く風 (40ms / 1.4s)' });
 	var tf = box(V, { text: 't f', ins: 1, outs: 1, x: x, y: y, w: 40, types: ['float'] });
 	conn(V, rtId, cfg.ev, tf, 0);
-	var msg = box(V, { maxclass: 'message', text: '0., $1 800 $1 500 0. 3500', ins: 2, outs: 1, x: x, y: y + 32, w: 180 });
+	var msg = box(V, { maxclass: 'message', text: joint ? '0., $1 30 0. 650' : '0., $1 40 $1 120 0. 1400', ins: 2, outs: 1, x: x, y: y + 32, w: 190 });
 	conn(V, tf, 0, msg, 0);
 	var env = box(V, { text: 'line~', ins: 1, outs: 2, x: x, y: y + 64, w: 45, types: ['signal', 'bang'] });
 	conn(V, msg, 0, env, 0);
@@ -160,17 +231,15 @@ for (var vi = 0; vi < 10; vi++) {
 	var upA = box(V, { text: 'unpack 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.', ins: 1, outs: 10, x: 20, y: 100, w: 230 });
 	var rW = box(V, { text: 'r ed-weights', ins: 0, outs: 1, x: 280, y: 70, w: 85 });
 	var upW = box(V, { text: 'unpack 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.', ins: 1, outs: 10, x: 280, y: 100, w: 230 });
-	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 130, w: 320, text: '↓ 駆動量 = w × (0.15 + 0.85a): 獲物の声はより薄く、表出で開く差を拡大' });
-	var aOpen = box(V, { text: '* 0.85', ins: 2, outs: 1, x: 20, y: 155, w: 55 });
-	var aFloor = box(V, { text: '+ 0.15', ins: 2, outs: 1, x: 20, y: 178, w: 55 });
-	var mul = box(V, { text: '* 0.', ins: 2, outs: 1, x: 20, y: 201, w: 50 });
-	var pk = box(V, { text: 'pack 0. 50', ins: 2, outs: 1, x: 20, y: 231, w: 70 });
-	var ln = box(V, { text: 'line~', ins: 1, outs: 2, x: 20, y: 261, w: 45, types: ['signal', 'bang'] });
+	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 20, y: 130, w: 650, text: '↓ 近さゲート = w × (0.04 + 0.96a^1.35)。遠い=薄い気配 / 近い=少し開く / 一致=全開' });
+	var aCurve = box(V, { text: 'expr 0.04 + 0.96*pow($f1, 1.35)', ins: 1, outs: 1, x: 20, y: 155, w: 205 });
+	var mul = box(V, { text: '* 0.', ins: 2, outs: 1, x: 20, y: 185, w: 50 });
+	var pk = box(V, { text: 'pack 0. 90', ins: 2, outs: 1, x: 20, y: 215, w: 70 });
+	var ln = box(V, { text: 'line~', ins: 1, outs: 2, x: 20, y: 245, w: 45, types: ['signal', 'bang'] });
 	conn(V, rA, 0, upA, 0);
 	conn(V, rW, 0, upW, 0);
-	conn(V, upA, vi, aOpen, 0);
-	conn(V, aOpen, 0, aFloor, 0);
-	conn(V, aFloor, 0, mul, 0);
+	conn(V, upA, vi, aCurve, 0);
+	conn(V, aCurve, 0, mul, 0);
 	conn(V, upW, vi, mul, 1);
 	conn(V, mul, 0, pk, 0);
 	conn(V, pk, 0, ln, 0);
@@ -179,16 +248,13 @@ for (var vi = 0; vi < 10; vi++) {
 	conn(V, rE, 0, rtE, 0);
 	box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 540, y: 130, w: 250, text: '↑ 円弧の完結 / 動き出し (打撃系のトリガ)' });
 
-	// ---- 動きの生の激しさ (音色のミクロ変調用): 駆動量 float と linN の大きい方でスイープ ----
-	var maxi = null;
-	if (c.air || c.nyoGlide) {
+	// ---- 動きの生の激しさ。要素固有加工だけが必要な軸を使う ----
+	var upMotion = null;
+	if (c.air) {
 		var rMotion = box(V, { text: 'r ed-motion', ins: 0, outs: 1, x: 800, y: 70, w: 90 });
-		var upMotion = box(V, { text: 'unpack 0. 0. 0.', ins: 1, outs: 3, x: 800, y: 100, w: 130 });
+		upMotion = box(V, { text: 'unpack 0. 0. 0.', ins: 1, outs: 3, x: 800, y: 100, w: 130 });
 		conn(V, rMotion, 0, upMotion, 0);
-		maxi = box(V, { text: 'maximum 0.', ins: 2, outs: 1, x: 800, y: 130, w: 80 });
-		conn(V, mul, 0, maxi, 0);
-		conn(V, upMotion, 0, maxi, 1);
-		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 800, y: 160, w: 260, text: '↑ 細かく動くと音色/ピッチも揺れる (linN vs 駆動量の大きい方)' });
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: 800, y: 130, w: 300, text: '↑ lin / rot / speed (全ボイス共通変調にはしない)' });
 	}
 
 	// ---- 音の本体 (AIR / NYORON エンジン) ----
@@ -198,20 +264,23 @@ for (var vi = 0; vi < 10; vi++) {
 
 	var swellOut = null;
 	if (c.swell) {
-		swellOut = buildSwell(V, c.swell, bx, Y - 260, rtE);
+		var rawSwell = buildSwell(V, c.swell, bx, Y - 260, rtE);
+		var swellWPk = box(V, { text: 'pack 0. 70', ins: 2, outs: 1, x: bx + 210, y: Y - 228, w: 70 });
+		var swellWLine = box(V, { text: 'line~', ins: 1, outs: 2, x: bx + 210, y: Y - 196, w: 45, types: ['signal', 'bang'] });
+		var swellGate = box(V, { text: '*~', ins: 2, outs: 1, x: bx + 210, y: Y - 164, w: 50, types: sig(1) });
+		conn(V, upW, vi, swellWPk, 0);
+		conn(V, swellWPk, 0, swellWLine, 0);
+		conn(V, rawSwell, 0, swellGate, 0);
+		conn(V, swellWLine, 0, swellGate, 1);
+		swellOut = swellGate;
+		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: bx + 270, y: Y - 164, w: 260, text: 'イベントも獲物重みでゲート' });
 		bx += 340;
 	}
 	if (c.air) {
 		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: bx, y: Y - 20, w: 300, text: '空気: noise→reson コード' });
-		var airOut = buildAir(V, c.air, bx, Y, ln, maxi, swellOut);
+		var airOut = buildAir(V, c.air, bx, Y, ln, upA, vi, swellOut, upMotion);
 		branches.push(airOut);
 		bx += 620;
-	}
-	if (c.nyoGlide) {
-		box(V, { maxclass: 'comment', ins: 1, outs: 0, x: bx, y: Y - 20, w: 260, text: 'にょろん: 連続グライド' });
-		var glide = buildNyoGlide(V, c.nyoGlide, bx, Y, maxi, ln);
-		branches.push(glide.out);
-		bx += 260;
 	}
 
 	// 全エンジンを +~ で合流 → outlet
@@ -243,16 +312,12 @@ function buildGranularFx(outDir) {
 	conn(G, lb, 0, msgRecOn, 0);
 	conn(G, msgRecOn, 0, rec, 0);
 
-	// 動きの生の激しさ (linN) でグレイン速度を変調 (動くほど粒が細かく速い)
-	box(G, { maxclass: 'comment', ins: 1, outs: 0, x: 420, y: 12, w: 300, text: '動きでグレイン速度を変調 (linN)' });
-	var rMotionG = box(G, { text: 'r ed-motion', ins: 0, outs: 1, x: 420, y: 50, w: 90 });
-	var upMotionG = box(G, { text: 'unpack 0. 0. 0.', ins: 1, outs: 3, x: 420, y: 80, w: 130 });
-	conn(G, rMotionG, 0, upMotionG, 0);
+	// Granulator はマッピング外の動きを知らせない。速度によるグローバル変調はしない。
+	box(G, { maxclass: 'comment', ins: 1, outs: 0, x: 420, y: 12, w: 420, text: '固定した薄い残像: マッピング外の動きでは変化しない' });
 	var motionScales = [];
 	var scaleRanges = [[90, 45], [130, 65], [170, 85]];
 	for (var mi = 0; mi < 3; mi++) {
-		var msc = box(G, { text: 'scale 0. 1. ' + scaleRanges[mi][0] + ' ' + scaleRanges[mi][1], ins: 6, outs: 1, x: 420 + mi * 150, y: 110, w: 140 });
-		conn(G, upMotionG, 0, msc, 0);
+		var msc = box(G, { text: 'loadmess ' + scaleRanges[mi][0], ins: 1, outs: 1, x: 420 + mi * 150, y: 80, w: 110 });
 		motionScales.push(msc);
 	}
 
@@ -310,7 +375,7 @@ function buildGranularFx(outDir) {
 
 	// wet ツマミ: flonum → expr 1.-$f1 (ドライ係数) / flonum直 (ウェット係数)
 	box(G, { maxclass: 'comment', ins: 1, outs: 0, x: 700, y: 50, w: 90, text: 'wet' });
-	var wlm = box(G, { text: 'loadmess 0.15', ins: 1, outs: 1, x: 700, y: 70, w: 90 });
+	var wlm = box(G, { text: 'loadmess 0.08', ins: 1, outs: 1, x: 700, y: 70, w: 90 });
 	var wnb = box(G, { maxclass: 'flonum', ins: 1, outs: 2, x: 700, y: 100, w: 70, types: ['', 'bang'], extra: { parameter_enable: 0 } });
 	conn(G, wlm, 0, wnb, 0);
 	var dryExpr = box(G, { text: 'expr 1.-$f1', ins: 1, outs: 1, x: 700, y: 130, w: 90 });
